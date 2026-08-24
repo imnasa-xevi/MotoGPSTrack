@@ -114,7 +114,10 @@
   .wp-dot.done{background:var(--done);}
   .wp-dot.current{width:32px; height:32px; background:var(--go); font-size:.85rem;}
   .wp-dot.upcoming{background:var(--accent);}
-  .me-dot{width:32px; height:32px; border-radius:50%; background:var(--go); border:3px solid #fff; box-shadow:0 0 0 5px rgba(52,211,153,.28); display:flex; align-items:center; justify-content:center; font-size:16px;}
+  /* Moto vista desde arriba, tipo Waze: sin placa/círculo detrás, solo la
+     silueta con sombra, apuntando siempre en la dirección real de la marcha
+     (rotationAlignment:'map' en el marcador de MapLibre). */
+  .me-moto{width:34px; height:52px; filter:drop-shadow(0 3px 6px rgba(0,0,0,.55));}
 
   .stat-row{display:flex; gap:10px; margin-top:12px;}
   .stat{flex:1; padding:12px 14px; border-radius:16px; background:var(--card); border:1px solid var(--border);}
@@ -130,6 +133,31 @@
   .toast.show{opacity:1;}
 
   .maplibregl-ctrl-attrib{font-size:9px !important;}
+
+  .alert-card{background:var(--card); border-radius:18px; padding:12px 16px; display:none; align-items:center; gap:14px; margin-bottom:10px; border:1.5px solid var(--border);}
+  .alert-card.radar{border-color:var(--danger);}
+  .alert-card.fuel{border-color:var(--warn);}
+  .alert-card .a-icon{font-size:1.5rem; flex:none;}
+  .alert-card .a-main{font-family:var(--font-display); font-size:1.15rem; font-weight:700;}
+  .alert-card.radar .a-main{color:var(--danger);}
+  .alert-card .a-sub{font-size:.75rem; color:var(--muted);}
+
+  .radar-dot{width:26px; height:26px; border-radius:50%; background:#1a2530; border:2px solid var(--danger); display:flex; align-items:center; justify-content:center; font-size:.85rem;}
+
+  .overlay{position:fixed; inset:0; background:rgba(6,10,14,.75); z-index:4000; display:flex; align-items:flex-end; justify-content:center;}
+  .overlay.hidden{display:none;}
+  .sheet{background:var(--bg); width:100%; max-width:520px; max-height:88vh; overflow-y:auto; border-radius:22px 22px 0 0; padding:18px 18px calc(18px + env(safe-area-inset-bottom));}
+  .sheet-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .sheet-head h3{font-size:1.05rem;}
+  .sheet-close{background:var(--card); border:1px solid var(--border); color:var(--text); width:34px; height:34px; border-radius:50%; font-size:1rem;}
+  .muted-p{color:var(--muted); font-size:.85rem; margin:0 0 14px; line-height:1.5;}
+
+  .km-display{text-align:center; font-size:2.3rem; font-weight:800; font-family:var(--font-display); padding:18px 0; background:var(--card); border:1px solid var(--border); border-radius:14px;}
+  .km-display .km-unit{font-size:1.05rem; font-weight:600; color:var(--muted); margin-left:6px;}
+  .km-keypad{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px;}
+  .km-key{aspect-ratio:1.6/1; font-size:1.5rem; font-weight:700; font-family:var(--font-display); border-radius:14px; background:var(--card); border:1px solid var(--border); color:var(--text);}
+  .km-key:active{background:var(--bg2);}
+  .km-key-muted{font-size:1.15rem; color:var(--muted);}
 </style>
 </head>
 <body>
@@ -153,6 +181,16 @@
   <div class="session-btns" id="sessionBtns">
     <button class="btn secondary" id="btnPause" style="flex:2;">⏸️ Pausar</button>
     <button class="btn danger" id="btnStop" style="flex:1;">🛑 Terminar</button>
+  </div>
+
+  <div class="alert-card radar" id="radarAlert">
+    <div class="a-icon">📷</div>
+    <div><div class="a-main" id="radarDist">—</div><div class="a-sub" id="radarSpeed">Radar fijo</div></div>
+  </div>
+
+  <div class="alert-card fuel" id="fuelAlert">
+    <div class="a-icon">⛽</div>
+    <div class="a-sub" id="fuelText">Llevas un buen tramo sin repostar</div>
   </div>
 
   <div class="banner" id="banner">
@@ -193,6 +231,29 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="overlay hidden" id="kmOverlay">
+  <div class="sheet">
+    <div class="sheet-head"><h3>Km desde el último repostaje</h3><button class="sheet-close" id="closeKm">✕</button></div>
+    <p class="muted-p">Para avisarte cuando te quedes sin gasolina.</p>
+    <div class="km-display" id="kmDisplay">0 <span class="km-unit">km</span></div>
+    <div class="km-keypad" id="kmKeypad">
+      <button class="km-key" data-key="1">1</button>
+      <button class="km-key" data-key="2">2</button>
+      <button class="km-key" data-key="3">3</button>
+      <button class="km-key" data-key="4">4</button>
+      <button class="km-key" data-key="5">5</button>
+      <button class="km-key" data-key="6">6</button>
+      <button class="km-key" data-key="7">7</button>
+      <button class="km-key" data-key="8">8</button>
+      <button class="km-key" data-key="9">9</button>
+      <button class="km-key km-key-muted" data-key="clear">C</button>
+      <button class="km-key" data-key="0">0</button>
+      <button class="km-key km-key-muted" data-key="back">⌫</button>
+    </div>
+    <button class="btn" id="btnKmConfirm" style="width:100%; margin-top:14px;">Continuar</button>
+  </div>
+</div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
@@ -236,6 +297,19 @@ function haversine(lat1,lon1,lat2,lon2){
   return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+function bearing(lat1,lon1,lat2,lon2){
+  const toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
+  const y = Math.sin(toRad(lon2-lon1))*Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+  return (toDeg(Math.atan2(y,x))+360)%360;
+}
+function toXY(lat, lon, refLat){
+  const R = 6371000;
+  return [R * (lon*Math.PI/180) * Math.cos(refLat*Math.PI/180), R * (lat*Math.PI/180)];
+}
+function fmtDist(m){
+  return m < 950 ? (Math.round(m/10)*10) + ' m' : (m/1000).toFixed(1) + ' km';
+}
 
 /* ================= Estado ================= */
 let map = null, lastPos = null, watchId = null, currentIdx = 0, followMode = true;
@@ -243,6 +317,11 @@ let is3D = false, mapRotateMode = false, lastGpsHeading = null;
 let fullscreenNav = false, wakeLock = null, navPaused = false;
 let wpMarkers = [], meMarker = null;
 let fullRouteGeoms = new Array(ROUTE.length - 1).fill(null);
+let routeModel = null, routedIdx = -1, routeRequestBusy = false, spokenKeys = new Set();
+let radarPoints = [], radarMarkers = [], radarAnnounced = new Set();
+let maxspeedWays = [], maxspeedFetchedAt = null;
+let odoSinceFuel = 0, lastOdoPos = null, fuelStations = [], fuelRangeKm = 220;
+const FUEL_MIN_M_FOR_RESET = 100000; // no reinicia el contador si aún llevas poca distancia
 
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -299,6 +378,285 @@ function renderRouteLayer(){
   map.getSource('route').setData({type:'FeatureCollection', features});
 }
 
+/* ================= Navegación giro a giro (OSRM con maniobras reales) =================
+   Independiente de fullRouteGeoms (que es la ruta "oficial" planificada,
+   ROUTE[i]→ROUTE[i+1]): esta se recalcula desde tu posición GPS real hasta
+   el destino actual cada vez que cambias de destino, igual que en MotoTrack. */
+function nearestOnRoute(model, lat, lon){
+  const [px,py] = toXY(lat, lon, lat);
+  let best = null, bestDist = Infinity;
+  for(let i=0;i<model.coords.length-1;i++){
+    const [lon1,lat1] = model.coords[i], [lon2,lat2] = model.coords[i+1];
+    const [x1,y1] = toXY(lat1,lon1,lat), [x2,y2] = toXY(lat2,lon2,lat);
+    const dx=x2-x1, dy=y2-y1;
+    const len2 = dx*dx+dy*dy;
+    let t = len2>0 ? ((px-x1)*dx+(py-y1)*dy)/len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const dist = Math.hypot(px-(x1+t*dx), py-(y1+t*dy));
+    if(dist < bestDist){
+      bestDist = dist;
+      best = {distToRoute:dist, cumDist: model.cum[i] + t*Math.sqrt(len2)};
+    }
+  }
+  return best || {distToRoute:0, cumDist:0};
+}
+function describeManeuver(mn){
+  const dirText = {
+    'left':'a la izquierda','right':'a la derecha','straight':'recto',
+    'slight left':'ligeramente a la izquierda','slight right':'ligeramente a la derecha',
+    'sharp left':'con fuerza a la izquierda','sharp right':'con fuerza a la derecha',
+    'uturn':'cambia de sentido'
+  }[mn.modifier] || '';
+  const icon = {
+    'left':'⬅️','right':'➡️','straight':'⬆️','uturn':'↩️',
+    'slight left':'↖️','slight right':'↗️','sharp left':'⬅️','sharp right':'➡️'
+  }[mn.modifier] || '⬆️';
+  if(mn.type === 'depart') return {icon:'🏁', label:'Sal' + (mn.name ? ' hacia ' + mn.name : '')};
+  if(mn.type === 'arrive') return {icon:'🏁', label:'Has llegado'};
+  if(mn.type === 'roundabout' || mn.type === 'rotary') return {icon:'🔄', label:'Toma la rotonda' + (mn.name ? ', hacia ' + mn.name : '')};
+  let label = mn.modifier === 'uturn' ? dirText : ('Gira ' + dirText);
+  if(mn.name) label += ' hacia ' + mn.name;
+  return {icon, label};
+}
+async function fetchOsrmRouteWithSteps(from, to){
+  const url = `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?geometries=geojson&overview=full&steps=true`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const data = await res.json();
+  if(data.code !== 'Ok' || !data.routes?.length) throw new Error(data.code || 'sin ruta');
+  return data.routes[0];
+}
+async function maybeRecomputeRoute(){
+  if(!lastPos || routeRequestBusy || currentIdx >= ROUTE.length) return;
+  if(currentIdx === routedIdx && routeModel) return;
+  routedIdx = currentIdx;
+  routeRequestBusy = true;
+  try{
+    const r = await fetchOsrmRouteWithSteps(lastPos, ROUTE[currentIdx]);
+    const coords = r.geometry.coordinates; // [lon,lat]
+    const cum = [0];
+    for(let i=1;i<coords.length;i++) cum.push(cum[i-1] + haversine(coords[i-1][1],coords[i-1][0], coords[i][1],coords[i][0])*1000);
+    const steps = r.legs[0].steps;
+    const maneuvers = [];
+    for(let i=1;i<steps.length;i++){
+      const st = steps[i];
+      const loc = st.maneuver.location;
+      let bestIdx=0, bestD=Infinity;
+      for(let j=0;j<coords.length;j++){
+        const dd = haversine(coords[j][1],coords[j][0], loc[1], loc[0]);
+        if(dd<bestD){ bestD=dd; bestIdx=j; }
+      }
+      maneuvers.push({idx:maneuvers.length, type:st.maneuver.type, modifier:st.maneuver.modifier, name:st.name, cumDist:cum[bestIdx]});
+    }
+    routeModel = {coords, cum, totalDist:cum[cum.length-1], maneuvers};
+    spokenKeys.clear();
+  }catch(e){
+    routeModel = null;
+  }
+  routeRequestBusy = false;
+}
+function maybeAnnounce(idx, label, dist){
+  const farKey = 'far'+idx, nearKey = 'near'+idx;
+  if(dist <= 350 && dist > 60 && !spokenKeys.has(farKey)){
+    spokenKeys.add(farKey);
+    speakIfPossible(`En ${Math.round(dist/50)*50} metros, ${label.charAt(0).toLowerCase()+label.slice(1)}`);
+  }
+  if(dist <= 60 && !spokenKeys.has(nearKey)){
+    spokenKeys.add(nearKey); spokenKeys.add(farKey);
+    speakIfPossible(label);
+  }
+}
+function updateTurnBanner(){
+  const bIcon = document.getElementById('bIcon'), bDist = document.getElementById('bDist'), bLabel = document.getElementById('bLabel');
+  document.getElementById('banner').style.display = 'flex';
+  if(currentIdx >= ROUTE.length){
+    bIcon.textContent='🏁'; bDist.textContent='—'; bLabel.textContent='Ruta completada'; return;
+  }
+  if(!routeModel || !lastPos){
+    bIcon.textContent='⏳'; bDist.textContent = routeRequestBusy ? 'Calculando…' : '—'; bLabel.textContent = 'Buscando la mejor ruta'; return;
+  }
+  const near = nearestOnRoute(routeModel, lastPos.lat, lastPos.lon);
+  const upcoming = routeModel.maneuvers.find(mn => mn.cumDist > near.cumDist - 5);
+  if(!upcoming){
+    bIcon.textContent='🏁';
+    bDist.textContent = fmtDist(Math.max(0, routeModel.totalDist - near.cumDist));
+    bLabel.textContent = 'Has llegado a ' + ROUTE[currentIdx].name;
+    if(!spokenKeys.has('arrived')){ spokenKeys.add('arrived'); speakIfPossible('Has llegado a ' + ROUTE[currentIdx].name); }
+    return;
+  }
+  const d = describeManeuver(upcoming);
+  const dist = Math.max(0, upcoming.cumDist - near.cumDist);
+  bIcon.textContent = d.icon; bDist.textContent = fmtDist(dist); bLabel.textContent = d.label;
+  maybeAnnounce(upcoming.idx, d.label, dist);
+}
+
+/* ================= Radares fijos (OpenStreetMap / Overpass) ================= */
+async function loadRadars(){
+  const lats = ROUTE.map(w=>w.lat), lons = ROUTE.map(w=>w.lon);
+  const minLat=Math.min(...lats)-0.05, maxLat=Math.max(...lats)+0.05, minLon=Math.min(...lons)-0.05, maxLon=Math.max(...lons)+0.05;
+  const q = `[out:json][timeout:25];(node["highway"="speed_camera"](${minLat},${minLon},${maxLat},${maxLon});node["enforcement"="maxspeed"](${minLat},${minLon},${maxLat},${maxLon}););out body;`;
+  try{
+    const res = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:q});
+    const data = await res.json();
+    radarPoints = (data.elements||[]).map(e => ({id:e.id, lat:e.lat, lon:e.lon, maxspeed: e.tags && e.tags.maxspeed ? e.tags.maxspeed : null}));
+    renderRadarMarkers();
+  }catch(e){}
+}
+function renderRadarMarkers(){
+  if(!map) return;
+  radarMarkers.forEach(m => m.remove());
+  radarMarkers = radarPoints.map(r => {
+    const el = document.createElement('div');
+    el.className = 'radar-dot'; el.textContent = '📷';
+    return new maplibregl.Marker({element: el}).setLngLat([r.lon, r.lat]).addTo(map);
+  });
+}
+function checkRadarAlerts(){
+  const alertEl = document.getElementById('radarAlert');
+  if(!radarPoints.length || !lastPos){ alertEl.style.display='none'; return; }
+  const ALERT_M=700, VOICE_M=500;
+  let closest=null, closestDist=Infinity;
+  radarPoints.forEach(r => {
+    const d = haversine(lastPos.lat,lastPos.lon,r.lat,r.lon)*1000;
+    if(d>ALERT_M) return;
+    let ahead=true;
+    if(lastGpsHeading!==null){
+      const b = bearing(lastPos.lat,lastPos.lon,r.lat,r.lon);
+      const diff = Math.abs(((b-lastGpsHeading+540)%360)-180);
+      ahead = diff<70;
+    }
+    if(ahead && d<closestDist){ closestDist=d; closest=r; }
+  });
+  if(closest){
+    alertEl.style.display='flex';
+    document.getElementById('radarDist').textContent = fmtDist(closestDist);
+    document.getElementById('radarSpeed').textContent = closest.maxspeed ? `Radar fijo · límite ${closest.maxspeed} km/h` : 'Radar fijo';
+    if(!radarAnnounced.has(closest.id) && closestDist<VOICE_M){
+      radarAnnounced.add(closest.id);
+      speakIfPossible('Radar fijo próximo' + (closest.maxspeed?`, límite ${closest.maxspeed} kilómetros por hora`:''));
+    }
+  } else {
+    alertEl.style.display='none';
+  }
+}
+
+/* ================= Límite de velocidad real (Overpass, maxspeed) ================= */
+function parseMaxspeedTag(v){
+  if(!v) return null;
+  const n = parseInt(v, 10);
+  return isNaN(n) ? null : n;
+}
+async function maybeLoadMaxspeed(){
+  if(!lastPos) return;
+  if(maxspeedFetchedAt && haversine(maxspeedFetchedAt.lat,maxspeedFetchedAt.lon,lastPos.lat,lastPos.lon) < 2) return;
+  maxspeedFetchedAt = {lat:lastPos.lat, lon:lastPos.lon};
+  const d = 0.03;
+  const q = `[out:json][timeout:15];way["highway"]["maxspeed"](${lastPos.lat-d},${lastPos.lon-d},${lastPos.lat+d},${lastPos.lon+d});out geom;`;
+  try{
+    const res = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:q});
+    const data = await res.json();
+    maxspeedWays = (data.elements||[]).map(w => ({
+      coords: (w.geometry||[]).map(g => [g.lat, g.lon]),
+      maxspeed: parseMaxspeedTag(w.tags && w.tags.maxspeed)
+    })).filter(w => w.maxspeed && w.coords.length>1);
+  }catch(e){}
+}
+function currentSpeedLimit(){
+  if(!lastPos || !maxspeedWays.length) return null;
+  const [px,py] = toXY(lastPos.lat, lastPos.lon, lastPos.lat);
+  let best=null, bestDist=Infinity;
+  maxspeedWays.forEach(w => {
+    for(let i=0;i<w.coords.length-1;i++){
+      const [lat1,lon1]=w.coords[i], [lat2,lon2]=w.coords[i+1];
+      const [x1,y1]=toXY(lat1,lon1,lastPos.lat), [x2,y2]=toXY(lat2,lon2,lastPos.lat);
+      const dx=x2-x1, dy=y2-y1;
+      const len2=dx*dx+dy*dy;
+      let t = len2>0 ? ((px-x1)*dx+(py-y1)*dy)/len2 : 0;
+      t = Math.max(0, Math.min(1,t));
+      const dist = Math.hypot(px-(x1+t*dx), py-(y1+t*dy));
+      if(dist<bestDist){ bestDist=dist; best=w.maxspeed; }
+    }
+  });
+  return bestDist<35 ? best : null;
+}
+function updateSpeedSign(){
+  const limit = currentSpeedLimit();
+  const signEl = document.getElementById('speedSign');
+  if(fullscreenNav && limit !== null){
+    signEl.classList.add('show');
+    document.getElementById('speedSignNum').textContent = limit;
+  } else {
+    signEl.classList.remove('show');
+  }
+}
+
+/* ================= Gasolina ================= */
+async function loadFuelStations(){
+  const lats = ROUTE.map(w=>w.lat), lons = ROUTE.map(w=>w.lon);
+  const minLat=Math.min(...lats)-0.05, maxLat=Math.max(...lats)+0.05, minLon=Math.min(...lons)-0.05, maxLon=Math.max(...lons)+0.05;
+  const q = `[out:json][timeout:20];node["amenity"="fuel"](${minLat},${minLon},${maxLat},${maxLon});out body;`;
+  try{
+    const res = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:q});
+    const data = await res.json();
+    fuelStations = (data.elements||[]).map(e => ({lat:e.lat, lon:e.lon}));
+  }catch(e){}
+}
+function updateFuelTracking(lat, lon){
+  if(lastOdoPos) odoSinceFuel += haversine(lastOdoPos.lat, lastOdoPos.lon, lat, lon)*1000;
+  lastOdoPos = {lat, lon};
+  const near = fuelStations.find(f => haversine(lat,lon,f.lat,f.lon)*1000 < 150);
+  if(near && odoSinceFuel > FUEL_MIN_M_FOR_RESET){
+    odoSinceFuel = 0;
+    showToast('⛽ Repostaje detectado, contador reiniciado');
+  }
+  const fuelAlert = document.getElementById('fuelAlert');
+  const warnAtM = fuelRangeKm * 1000 * 0.8;
+  if(odoSinceFuel > warnAtM){
+    fuelAlert.style.display = 'flex';
+    document.getElementById('fuelText').textContent = `⛽ Llevas ${Math.round(odoSinceFuel/1000)} km sin repostar (autonomía ${fuelRangeKm} km)`;
+  } else {
+    fuelAlert.style.display = 'none';
+  }
+}
+
+/* Selector de km con teclado numérico grande, en vez de un prompt() nativo
+   bloqueante (ver por qué en MotoTrack: ese diálogo dejaba a veces el mapa
+   mal dimensionado al cerrarse). */
+const KM_MAX_DIGITS = 5;
+function openKmPicker(){
+  return new Promise(resolve => {
+    const overlay = document.getElementById('kmOverlay');
+    const display = document.getElementById('kmDisplay');
+    const keypad = document.getElementById('kmKeypad');
+    const closeBtn = document.getElementById('closeKm');
+    const confirmBtn = document.getElementById('btnKmConfirm');
+    let digits = '';
+    const render = () => { display.innerHTML = (digits || '0') + ' <span class="km-unit">km</span>'; };
+    render();
+    function onKeyClick(e){
+      const btn = e.target.closest('.km-key'); if(!btn) return;
+      const key = btn.dataset.key;
+      if(key === 'clear') digits = '';
+      else if(key === 'back') digits = digits.slice(0, -1);
+      else if(digits.length < KM_MAX_DIGITS) digits += key;
+      render();
+    }
+    keypad.addEventListener('click', onKeyClick);
+    function cleanup(km){
+      keypad.removeEventListener('click', onKeyClick);
+      closeBtn.removeEventListener('click', onClose);
+      confirmBtn.removeEventListener('click', onConfirm);
+      overlay.classList.add('hidden');
+      resolve(km);
+    }
+    function onClose(){ cleanup(null); }
+    function onConfirm(){ cleanup(digits ? parseInt(digits,10) : 0); }
+    closeBtn.addEventListener('click', onClose);
+    confirmBtn.addEventListener('click', onConfirm);
+    overlay.classList.remove('hidden');
+  });
+}
+
 /* ================= Marcadores numerados ================= */
 function renderWpMarkers(){
   wpMarkers.forEach(m => m.remove());
@@ -323,16 +681,31 @@ function updateWpMarkerStyles(){
   renderRouteLayer();
 }
 
-/* ================= Mi posición ================= */
+/* ================= Mi posición =================
+   Icono de moto visto desde arriba (no emoji): dibujado apuntando hacia el
+   norte (arriba) a rotación 0. rotationAlignment:'map' hace que MapLibre la
+   rote según el rumbo real independientemente de si el mapa mismo está
+   girado (modo "seguir marcha") o no (norte arriba) — en ambos casos la
+   moto siempre apunta hacia donde te diriges de verdad, como en Waze.
+   pitchAlignment:'viewport' evita que se vea aplastada en el modo 3D. */
+const ME_MOTO_SVG = `
+<svg class="me-moto" viewBox="0 0 40 64" xmlns="http://www.w3.org/2000/svg">
+  <rect x="12" y="44" width="16" height="18" rx="7" fill="#1a2530" stroke="#fff" stroke-width="1.5"/>
+  <path d="M20,16 C25,18 27,26 23,34 C29,38 29,46 24,50 L16,50 C11,46 11,38 17,34 C13,26 15,18 20,16 Z" fill="var(--go)" stroke="#fff" stroke-width="1.5"/>
+  <rect x="7" y="9" width="26" height="4" rx="2" fill="#eef4f9"/>
+  <rect x="15" y="3" width="10" height="16" rx="5" fill="#1a2530" stroke="#fff" stroke-width="1.5"/>
+  <circle cx="20" cy="6" r="1.6" fill="#eef4f9"/>
+</svg>`;
 function updateMeMarker(lat, lon){
   if(!map) return;
   if(!meMarker){
     const el = document.createElement('div');
-    el.className = 'me-dot'; el.textContent = '🏍️';
-    meMarker = new maplibregl.Marker({element: el}).setLngLat([lon, lat]).addTo(map);
+    el.innerHTML = ME_MOTO_SVG;
+    meMarker = new maplibregl.Marker({element: el, rotationAlignment:'map', pitchAlignment:'viewport'}).setLngLat([lon, lat]).addTo(map);
   } else {
     meMarker.setLngLat([lon, lat]);
   }
+  if(lastGpsHeading !== null) meMarker.setRotation(lastGpsHeading);
   if(followMode){
     map.easeTo({center:[lon, lat], zoom: Math.max(map.getZoom(), 15.5), duration:400});
   }
@@ -359,29 +732,18 @@ function speakIfPossible(text){
   }catch(e){}
 }
 
-function updateBannerAndStats(pos){
-  const banner = document.getElementById('banner');
-  const bIcon = document.getElementById('bIcon'), bDist = document.getElementById('bDist'), bLabel = document.getElementById('bLabel');
-  banner.style.display = 'flex';
+function updateStats(pos){
   if(currentIdx >= ROUTE.length){
-    bIcon.textContent = '🏁'; bDist.textContent = '—'; bLabel.textContent = 'Ruta completada';
     document.getElementById('statNext').textContent = '—';
-    return;
+    document.getElementById('statDist').innerHTML = '— <span class="unit">km</span>';
+  } else {
+    const wp = ROUTE[currentIdx];
+    const d = haversine(lastPos.lat, lastPos.lon, wp.lat, wp.lon);
+    document.getElementById('statNext').textContent = wp.name;
+    document.getElementById('statDist').innerHTML = (d < 1 ? Math.round(d*1000)+' m' : d.toFixed(1)) + (d<1 ? '' : ' <span class="unit">km</span>');
   }
-  const wp = ROUTE[currentIdx];
-  const d = haversine(lastPos.lat, lastPos.lon, wp.lat, wp.lon);
-  bIcon.textContent = '📍';
-  bDist.textContent = d < 1 ? Math.round(d*1000) + ' m' : d.toFixed(1) + ' km';
-  bLabel.textContent = 'Hacia ' + wp.name;
-  document.getElementById('statNext').textContent = wp.name;
-  document.getElementById('statDist').innerHTML = (d < 1 ? Math.round(d*1000)+' m' : d.toFixed(1)) + (d<1 ? '' : ' <span class="unit">km</span>');
-
   const kmh = (pos.coords.speed !== null && !isNaN(pos.coords.speed)) ? Math.round(pos.coords.speed*3.6) : null;
   document.getElementById('statSpeed').innerHTML = (kmh !== null ? kmh : '—') + ' <span class="unit">km/h</span>';
-
-  const speedSign = document.getElementById('speedSign');
-  if(fullscreenNav && kmh !== null){ speedSign.classList.add('show'); document.getElementById('speedSignNum').textContent = kmh; }
-  else speedSign.classList.remove('show');
 }
 
 /* ================= GPS ================= */
@@ -397,7 +759,13 @@ function startWatch(){
     advanceIfClose();
     updateMeMarker(lastPos.lat, lastPos.lon);
     applyRotation();
-    updateBannerAndStats(pos);
+    updateStats(pos);
+    maybeRecomputeRoute().then(updateTurnBanner);
+    updateTurnBanner();
+    checkRadarAlerts();
+    updateFuelTracking(lastPos.lat, lastPos.lon);
+    maybeLoadMaxspeed().then(updateSpeedSign);
+    updateSpeedSign();
     maybeEnsureWakeLock();
   }, err => {
     document.getElementById('gpsDot').classList.remove('live');
@@ -465,6 +833,8 @@ function initMap(){
     renderWpMarkers();
     renderRouteLayer();
     loadFullRouteGeometry();
+    loadRadars();
+    loadFuelStations();
     fitToRoute();
   });
 
@@ -507,8 +877,14 @@ function toggleFullscreen(){
 
 /* ================= Eventos UI ================= */
 document.getElementById('btnEnable').addEventListener('click', () => {
+  // Importante: pedir wake lock y GPS ANTES del selector de km (mismo motivo
+  // que en MotoTrack: un diálogo de por medio puede romper el gesto de
+  // usuario que necesitan esas APIs en iOS).
   requestWakeLock();
   startWatch();
+  openKmPicker().then(km => {
+    if(km !== null && km >= 0) odoSinceFuel = km * 1000;
+  });
 });
 document.getElementById('btnPause').addEventListener('click', () => {
   const btn = document.getElementById('btnPause');
