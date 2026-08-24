@@ -204,6 +204,16 @@
 
   .elev-svg{width:100%; height:auto; display:block; margin-top:4px;}
   .elev-minmax{display:flex; justify-content:space-between; font-size:.72rem; color:var(--muted); margin-top:4px;}
+
+  .track-card{background:var(--card); border:1px solid var(--border); border-radius:16px; margin-top:10px; padding:14px 16px;}
+  .track-card-row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .track-status{font-size:.82rem; color:var(--muted); flex:1; min-width:0;}
+  #btnRecordTrack.recording{background:var(--danger); color:#fff; border-color:var(--danger);}
+  .track-row{display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:14px; background:var(--card2); border:1px solid var(--border); margin-bottom:8px;}
+  .track-row .tr-main{flex:1; min-width:0; cursor:pointer;}
+  .track-row .tr-name{font-weight:700; font-size:.9rem;}
+  .track-row .tr-sub{font-size:.72rem; color:var(--muted); margin-top:2px;}
+  .track-row .tr-btn{background:var(--bg2); border:1px solid var(--border); color:var(--text); width:34px; height:34px; border-radius:50%; font-size:.9rem;}
 </style>
 </head>
 <body>
@@ -285,6 +295,14 @@
     <summary>⛰️ Perfil de elevación <span class="chev">›</span></summary>
     <div class="info-body" id="elevBody"></div>
   </details>
+
+  <div class="track-card">
+    <div class="track-card-row">
+      <div class="track-status" id="trackStatus">Ningún trayecto grabado</div>
+      <button class="btn secondary" id="btnRecordTrack" style="width:auto; padding:10px 16px; font-size:.82rem; flex:none;">🔴 Grabar</button>
+    </div>
+    <button class="btn secondary" id="btnOpenTracks" style="margin-top:8px; font-size:.85rem;">📼 Ver trayectos guardados</button>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -312,6 +330,13 @@
     <div class="favorites-row" id="favoritesRow"></div>
     <div id="editorStops"></div>
     <button class="btn" id="btnSaveRoute" style="margin-top:10px;">Guardar ruta</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="tracksOverlay">
+  <div class="sheet">
+    <div class="sheet-head"><h3>Trayectos grabados</h3><button class="sheet-close" id="closeTracks">✕</button></div>
+    <div id="tracksList"></div>
   </div>
 </div>
 
@@ -932,6 +957,12 @@ function initMap(){
         'line-opacity':['match', ['get','status'], 'done', .7, 'current', .95, .8]
       }
     });
+    map.addSource('saved-track', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
+    map.addLayer({
+      id:'saved-track-line', type:'line', source:'saved-track',
+      layout:{'line-join':'round','line-cap':'round'},
+      paint:{'line-color':'#a855f7', 'line-width':4, 'line-opacity':.85}
+    });
     renderWpMarkers();
     renderRouteLayer();
     loadFullRouteGeometry();
@@ -1309,6 +1340,88 @@ async function loadElevation(){
   }
 }
 document.getElementById('elevCard').addEventListener('toggle', e => { if(e.target.open) loadElevation(); });
+
+/* ================= Grabación de trayectos (independiente de la ruta activa) =================
+   GPS propio, separado del de navegación: se puede grabar sin tener ninguna
+   ruta activada, igual que en MotoTrack. */
+let trackWatchId = null, trackRecording = false, currentTrackPoints = [];
+function loadTrackLibrary(){
+  try{ return JSON.parse(localStorage.getItem('motogpstrack_tracks_v1') || '[]'); }catch(e){ return []; }
+}
+function saveTrackLibrary(tracks){ try{ localStorage.setItem('motogpstrack_tracks_v1', JSON.stringify(tracks)); }catch(e){} }
+function trackDistanceKm(points){
+  let d = 0;
+  for(let i=1;i<points.length;i++) d += haversine(points[i-1].lat, points[i-1].lon, points[i].lat, points[i].lon);
+  return d;
+}
+function startTrackRecording(){
+  if(!('geolocation' in navigator)){ showToast('Este dispositivo no soporta geolocalización'); return; }
+  trackRecording = true;
+  currentTrackPoints = [];
+  const btn = document.getElementById('btnRecordTrack');
+  btn.textContent = '⏹ Detener'; btn.classList.add('recording');
+  document.getElementById('trackStatus').textContent = 'Grabando… 0 km';
+  trackWatchId = navigator.geolocation.watchPosition(pos => {
+    currentTrackPoints.push({lat:pos.coords.latitude, lon:pos.coords.longitude});
+    document.getElementById('trackStatus').textContent = `Grabando… ${trackDistanceKm(currentTrackPoints).toFixed(1)} km · ${currentTrackPoints.length} puntos`;
+  }, err => { showToast('Sin señal GPS (' + err.message + ')'); }, {enableHighAccuracy:true, maximumAge:2000, timeout:20000});
+}
+function stopTrackRecording(){
+  trackRecording = false;
+  if(trackWatchId !== null){ navigator.geolocation.clearWatch(trackWatchId); trackWatchId = null; }
+  const btn = document.getElementById('btnRecordTrack');
+  btn.textContent = '🔴 Grabar'; btn.classList.remove('recording');
+  if(currentTrackPoints.length > 1){
+    const name = 'Trayecto ' + new Date().toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) + ' ' + new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+    const tracks = loadTrackLibrary();
+    tracks.unshift({id:'track-'+Date.now(), name, points: currentTrackPoints, km: trackDistanceKm(currentTrackPoints)});
+    saveTrackLibrary(tracks);
+    showToast('✓ Trayecto guardado: ' + name);
+  }
+  document.getElementById('trackStatus').textContent = 'Ningún trayecto grabado';
+  currentTrackPoints = [];
+}
+document.getElementById('btnRecordTrack').addEventListener('click', () => {
+  if(trackRecording) stopTrackRecording(); else startTrackRecording();
+});
+
+function openTracksSheet(){ renderTracksList(); document.getElementById('tracksOverlay').classList.remove('hidden'); }
+function closeTracksSheet(){ document.getElementById('tracksOverlay').classList.add('hidden'); }
+function renderTracksList(){
+  const tracks = loadTrackLibrary();
+  document.getElementById('tracksList').innerHTML = tracks.length ? tracks.map(t => `
+    <div class="track-row">
+      <div class="tr-main" data-view="${t.id}">
+        <div class="tr-name">📼 ${t.name}</div>
+        <div class="tr-sub">${t.km.toFixed(1)} km · ${t.points.length} puntos</div>
+      </div>
+      <button class="tr-btn" data-del="${t.id}" title="Borrar" style="color:var(--danger);">✕</button>
+    </div>`).join('') : '<div class="info-empty">Aún no has grabado ningún trayecto</div>';
+}
+document.getElementById('tracksList').addEventListener('click', e => {
+  const del = e.target.closest('[data-del]');
+  if(del){
+    if(!confirm('¿Borrar este trayecto grabado?')) return;
+    saveTrackLibrary(loadTrackLibrary().filter(t => t.id !== del.dataset.del));
+    renderTracksList();
+    return;
+  }
+  const view = e.target.closest('[data-view]');
+  if(view){
+    const t = loadTrackLibrary().find(x => x.id === view.dataset.view);
+    if(!t || !map || !map.getSource('saved-track')){ showToast('El mapa aún se está cargando, prueba en un momento'); return; }
+    const coords = t.points.map(p => [p.lon, p.lat]);
+    map.getSource('saved-track').setData({type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:coords}});
+    const bounds = new maplibregl.LngLatBounds();
+    coords.forEach(c => bounds.extend(c));
+    setFollow(false);
+    map.fitBounds(bounds, {padding:44, duration:500});
+    closeTracksSheet();
+    showToast('Trayecto mostrado en morado en el mapa');
+  }
+});
+document.getElementById('btnOpenTracks').addEventListener('click', openTracksSheet);
+document.getElementById('closeTracks').addEventListener('click', closeTracksSheet);
 
 refreshRouteHeader();
 initMap();
