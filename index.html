@@ -158,6 +158,36 @@
   .km-key{aspect-ratio:1.6/1; font-size:1.5rem; font-weight:700; font-family:var(--font-display); border-radius:14px; background:var(--card); border:1px solid var(--border); color:var(--text);}
   .km-key:active{background:var(--bg2);}
   .km-key-muted{font-size:1.15rem; color:var(--muted);}
+
+  .route-row{display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:14px; background:var(--card); border:1px solid var(--border); margin-bottom:8px;}
+  .route-row.active{border-color:var(--accent);}
+  .route-row .rr-main{flex:1; min-width:0; cursor:pointer;}
+  .route-row .rr-name{font-weight:700; font-size:.92rem;}
+  .route-row .rr-count{font-size:.72rem; color:var(--muted); margin-top:2px;}
+  .route-row .rr-btn{background:var(--bg2); border:1px solid var(--border); color:var(--text); width:34px; height:34px; border-radius:50%; font-size:.95rem; flex:none;}
+
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px;}
+  .field input[type="text"]{width:100%; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:13px 14px; color:var(--text); font-size:.95rem; font-family:var(--font-body);}
+  .field input[type="text"]:focus{outline:none; border-color:var(--accent);}
+
+  .search-results{margin-top:8px;}
+  .search-result-row{padding:10px 12px; border-radius:12px; background:var(--card2); border:1px solid var(--border); margin-bottom:6px; display:flex; align-items:center; gap:8px;}
+  .search-result-row .srr-main{flex:1; min-width:0; cursor:pointer;}
+  .search-result-row .srr-name{font-weight:700; font-size:.88rem;}
+  .search-result-row .srr-sub{font-size:.72rem; color:var(--muted); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .search-result-row .srr-fav{background:transparent; border:none; color:var(--muted); font-size:1.15rem; flex:none; width:34px; height:34px;}
+  .fav-name-row{display:flex; gap:8px; margin:-2px 0 8px; padding:0 2px;}
+  .fav-name-row input{flex:1; background:var(--bg2); border:1px solid var(--accent); border-radius:10px; padding:9px 10px; color:var(--text); font-size:.85rem;}
+  .fav-name-row button{background:var(--accent); color:var(--accent-ink); border:none; border-radius:10px; padding:0 14px; font-weight:700; font-size:.85rem;}
+
+  .favorites-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+  .fav-chip{background:var(--card); border:1px solid var(--border); color:var(--text); border-radius:999px; padding:9px 14px; font-size:.82rem; display:flex; align-items:center; gap:6px;}
+
+  .stop-row{display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; background:var(--card); border:1px solid var(--border); margin-bottom:6px;}
+  .stop-row .sr-num{width:24px; height:24px; border-radius:50%; background:var(--accent); color:var(--accent-ink); font-family:var(--font-display); font-weight:800; font-size:.72rem; display:flex; align-items:center; justify-content:center; flex:none;}
+  .stop-row .sr-name{flex:1; min-width:0; font-size:.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .stop-row .sr-del{background:transparent; border:none; color:var(--danger); font-size:1.1rem; width:30px; height:30px; flex:none;}
 </style>
 </head>
 <body>
@@ -170,6 +200,7 @@
         <div class="sub" id="routeSub">Cargando ruta…</div>
       </div>
     </div>
+    <button class="btn secondary" id="btnOpenRoutes" style="width:auto; padding:10px 16px; font-size:.85rem;">🗂️ Rutas</button>
   </div>
 
   <div class="perm-card" id="permCard">
@@ -232,6 +263,32 @@
 
 <div class="toast" id="toast"></div>
 
+<div class="overlay hidden" id="routesOverlay">
+  <div class="sheet">
+    <div class="sheet-head"><h3>Tus rutas</h3><button class="sheet-close" id="closeRoutes">✕</button></div>
+    <div id="routesList"></div>
+    <button class="btn secondary" id="btnNewRoute" style="margin-top:4px;">+ Nueva ruta</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="editorOverlay">
+  <div class="sheet">
+    <div class="sheet-head"><h3 id="editorTitle">Nueva ruta</h3><button class="sheet-close" id="closeEditor">✕</button></div>
+    <div class="field">
+      <label>Nombre de la ruta</label>
+      <input type="text" id="editorName" placeholder="Ej. Escapada fin de semana">
+    </div>
+    <div class="field">
+      <label>Buscar destino, negocio o lugar</label>
+      <input type="text" id="editorSearch" placeholder="Restaurante, gasolinera, dirección…" autocomplete="off">
+      <div class="search-results" id="editorResults"></div>
+    </div>
+    <div class="favorites-row" id="favoritesRow"></div>
+    <div id="editorStops"></div>
+    <button class="btn" id="btnSaveRoute" style="margin-top:10px;">Guardar ruta</button>
+  </div>
+</div>
+
 <div class="overlay hidden" id="kmOverlay">
   <div class="sheet">
     <div class="sheet-head"><h3>Km desde el último repostaje</h3><button class="sheet-close" id="closeKm">✕</button></div>
@@ -287,7 +344,26 @@ const PIRINEOS_WAYPOINTS = [
   {name:'Roncal', lat:42.7896, lon:-0.9502},
   {name:'Isaba', lat:42.8760, lon:-0.8825},
 ];
-const ROUTE = PIRINEOS_WAYPOINTS;
+/* ================= Almacén de rutas y favoritos (localStorage) ================= */
+function loadStore(){
+  try{
+    const raw = localStorage.getItem('motogpstrack_store_v1');
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(parsed && Array.isArray(parsed.routes) && parsed.routes.length) return parsed;
+    }
+  }catch(e){}
+  return {
+    routes: [{id:'pirineos-demo', name:'Pirineos 2026 (demo)', waypoints: PIRINEOS_WAYPOINTS}],
+    activeId: 'pirineos-demo',
+    favorites: []
+  };
+}
+function saveStore(){ try{ localStorage.setItem('motogpstrack_store_v1', JSON.stringify(store)); }catch(e){} }
+let store = loadStore();
+if(!store.favorites) store.favorites = [];
+function activeRouteObj(){ return store.routes.find(r => r.id === store.activeId) || store.routes[0]; }
+let ROUTE = activeRouteObj().waypoints;
 
 /* ================= Utilidades de geometría (idénticas a MotoTrack) ================= */
 function haversine(lat1,lon1,lat2,lon2){
@@ -923,10 +999,194 @@ document.getElementById('modeToggle').addEventListener('click', e => {
   set3D(btn.dataset.mode === '3d');
 });
 
-document.getElementById('routeTitle').textContent = 'Pirineos 2026 (demo)';
-document.getElementById('routeSub').textContent = ROUTE.length + ' destinos · MotoGPSTrack';
+/* ================= Cambiar / gestionar rutas ================= */
+function refreshRouteHeader(){
+  document.getElementById('routeTitle').textContent = activeRouteObj().name;
+  document.getElementById('routeSub').textContent = ROUTE.length + ' destinos · MotoGPSTrack';
+}
+function switchRoute(id){
+  store.activeId = id;
+  saveStore();
+  currentIdx = 0; routeModel = null; routedIdx = -1; spokenKeys.clear();
+  radarAnnounced.clear();
+  ROUTE = activeRouteObj().waypoints;
+  fullRouteGeoms = new Array(Math.max(0, ROUTE.length - 1)).fill(null);
+  refreshRouteHeader();
+  if(map){
+    renderWpMarkers();
+    renderRouteLayer();
+    loadFullRouteGeometry();
+    loadRadars();
+    loadFuelStations();
+    fitToRoute();
+  }
+  closeRoutesSheet();
+}
+function openRoutesSheet(){ renderRoutesList(); document.getElementById('routesOverlay').classList.remove('hidden'); }
+function closeRoutesSheet(){ document.getElementById('routesOverlay').classList.add('hidden'); }
+function renderRoutesList(){
+  document.getElementById('routesList').innerHTML = store.routes.map(r => `
+    <div class="route-row ${r.id===store.activeId?'active':''}">
+      <div class="rr-main" data-switch="${r.id}">
+        <div class="rr-name">${r.name}</div>
+        <div class="rr-count">${r.waypoints.length} destinos</div>
+      </div>
+      <button class="rr-btn" data-edit="${r.id}" title="Editar">✏️</button>
+      ${store.routes.length>1 ? `<button class="rr-btn" data-del="${r.id}" title="Borrar" style="color:var(--danger);">✕</button>` : ''}
+    </div>`).join('');
+}
+document.getElementById('routesList').addEventListener('click', e => {
+  const sw = e.target.closest('[data-switch]');
+  const ed = e.target.closest('[data-edit]');
+  const del = e.target.closest('[data-del]');
+  if(ed){ openEditor(ed.dataset.edit); return; }
+  if(del){
+    if(!confirm('¿Borrar esta ruta?')) return;
+    store.routes = store.routes.filter(r => r.id !== del.dataset.del);
+    if(store.activeId === del.dataset.del) store.activeId = store.routes[0].id;
+    saveStore();
+    if(ROUTE !== activeRouteObj().waypoints) switchRoute(store.activeId);
+    renderRoutesList();
+    return;
+  }
+  if(sw){ switchRoute(sw.dataset.switch); }
+});
+document.getElementById('closeRoutes').addEventListener('click', closeRoutesSheet);
+document.getElementById('btnOpenRoutes').addEventListener('click', openRoutesSheet);
+document.getElementById('btnNewRoute').addEventListener('click', () => openEditor(null));
 
+/* ================= Editor de rutas: buscador (Photon) + favoritos ================= */
+let editingRouteId = null, editorStops = [];
+function openEditor(routeId){
+  editingRouteId = routeId;
+  const r = routeId ? store.routes.find(x=>x.id===routeId) : null;
+  editorStops = r ? r.waypoints.map(w => ({...w})) : [];
+  document.getElementById('editorTitle').textContent = r ? 'Editar ruta' : 'Nueva ruta';
+  document.getElementById('editorName').value = r ? r.name : '';
+  document.getElementById('editorSearch').value = '';
+  document.getElementById('editorResults').innerHTML = '';
+  renderEditorStops();
+  renderFavorites();
+  document.getElementById('editorOverlay').classList.remove('hidden');
+}
+function closeEditor(){ document.getElementById('editorOverlay').classList.add('hidden'); }
+function addEditorStop(name, lat, lon){
+  editorStops.push({name, lat, lon});
+  renderEditorStops();
+}
+function renderEditorStops(){
+  document.getElementById('editorStops').innerHTML = editorStops.map((s,i) => `
+    <div class="stop-row">
+      <div class="sr-num">${i+1}</div>
+      <div class="sr-name">${s.name}</div>
+      <button class="sr-del" data-idx="${i}">✕</button>
+    </div>`).join('');
+}
+document.getElementById('editorStops').addEventListener('click', e => {
+  const btn = e.target.closest('.sr-del'); if(!btn) return;
+  editorStops.splice(parseInt(btn.dataset.idx,10), 1);
+  renderEditorStops();
+});
+
+// Búsqueda con Photon (Komoot): a diferencia de Nominatim, encuentra bien
+// negocios, restaurantes y otros POIs por nombre, no solo direcciones.
+let searchDebounce = null, lastSearchFeatures = [];
+document.getElementById('editorSearch').addEventListener('input', e => {
+  clearTimeout(searchDebounce);
+  const q = e.target.value.trim();
+  const resultsEl = document.getElementById('editorResults');
+  if(q.length < 3){ resultsEl.innerHTML = ''; return; }
+  searchDebounce = setTimeout(async () => {
+    resultsEl.innerHTML = '<div class="srr-sub" style="padding:8px 4px;">Buscando…</div>';
+    try{
+      // lang solo admite default/de/en/fr en Photon (probado): "es" hace que
+      // la petición falle en silencio y devuelva 0 resultados siempre.
+      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6`);
+      const data = await res.json();
+      lastSearchFeatures = data.features || [];
+      resultsEl.innerHTML = lastSearchFeatures.map((f,i) => {
+        const p = f.properties;
+        const name = p.name || p.street || 'Lugar';
+        const sub = [p.street, p.city, p.country].filter(Boolean).join(', ');
+        return `<div class="search-result-row">
+          <div class="srr-main" data-idx="${i}"><div class="srr-name">${name}</div><div class="srr-sub">${sub}</div></div>
+          <button class="srr-fav" data-fav="${i}" title="Guardar como favorito">☆</button>
+        </div>`;
+      }).join('') || '<div class="srr-sub" style="padding:8px 4px;">Sin resultados</div>';
+    }catch(e){
+      resultsEl.innerHTML = '<div class="srr-sub" style="padding:8px 4px;">Sin conexión para buscar</div>';
+    }
+  }, 400);
+});
+document.getElementById('editorResults').addEventListener('click', e => {
+  const favBtn = e.target.closest('[data-fav]');
+  if(favBtn){
+    const f = lastSearchFeatures[parseInt(favBtn.dataset.fav,10)]; if(!f) return;
+    const p = f.properties;
+    const defaultName = p.name || p.street || 'Lugar';
+    const [lon, lat] = f.geometry.coordinates;
+    const row = favBtn.closest('.search-result-row');
+    // Formulario en línea (no prompt(): un diálogo bloqueante puede dar
+    // problemas en iOS, ya visto con MotoTrack) para poder ponerle un
+    // nombre propio como "Casa" o "Trabajo" antes de guardarlo.
+    const form = document.createElement('div');
+    form.className = 'fav-name-row';
+    form.innerHTML = `<input type="text" value="${defaultName.replace(/"/g,'&quot;')}"><button>Guardar</button>`;
+    row.replaceWith(form);
+    form.querySelector('button').addEventListener('click', () => {
+      const name = form.querySelector('input').value.trim() || defaultName;
+      store.favorites.push({name, lat, lon});
+      saveStore();
+      renderFavorites();
+      showToast('⭐ Guardado en favoritos: ' + name);
+      form.remove();
+    });
+    return;
+  }
+  const main = e.target.closest('[data-idx]'); if(!main) return;
+  const f = lastSearchFeatures[parseInt(main.dataset.idx,10)]; if(!f) return;
+  const p = f.properties;
+  const name = p.name || p.street || 'Lugar';
+  const [lon, lat] = f.geometry.coordinates;
+  addEditorStop(name, lat, lon);
+  document.getElementById('editorSearch').value = '';
+  document.getElementById('editorResults').innerHTML = '';
+});
+
+function renderFavorites(){
+  const favs = store.favorites || [];
+  document.getElementById('favoritesRow').innerHTML = favs.map((f,i) => {
+    const icon = /casa|home/i.test(f.name) ? '🏠' : (/trabajo|work|oficina/i.test(f.name) ? '💼' : '⭐');
+    return `<button class="fav-chip" data-idx="${i}">${icon} ${f.name}</button>`;
+  }).join('');
+}
+document.getElementById('favoritesRow').addEventListener('click', e => {
+  const chip = e.target.closest('.fav-chip'); if(!chip) return;
+  const f = (store.favorites||[])[parseInt(chip.dataset.idx,10)]; if(!f) return;
+  addEditorStop(f.name, f.lat, f.lon);
+});
+
+document.getElementById('closeEditor').addEventListener('click', closeEditor);
+document.getElementById('btnSaveRoute').addEventListener('click', () => {
+  const name = document.getElementById('editorName').value.trim() || 'Ruta sin nombre';
+  if(!editorStops.length){ showToast('Añade al menos un destino'); return; }
+  if(editingRouteId){
+    const r = store.routes.find(x => x.id === editingRouteId);
+    r.name = name; r.waypoints = editorStops;
+    saveStore();
+    if(store.activeId === editingRouteId) switchRoute(editingRouteId); else renderRoutesList();
+  } else {
+    const id = 'route-' + Date.now();
+    store.routes.push({id, name, waypoints: editorStops});
+    saveStore();
+    switchRoute(id);
+  }
+  closeEditor();
+});
+
+refreshRouteHeader();
 initMap();
+openRoutesSheet();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
