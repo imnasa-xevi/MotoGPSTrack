@@ -181,6 +181,10 @@
   .fav-name-row input{flex:1; background:var(--bg2); border:1px solid var(--accent); border-radius:10px; padding:9px 10px; color:var(--text); font-size:.85rem;}
   .fav-name-row button{background:var(--accent); color:var(--accent-ink); border:none; border-radius:10px; padding:0 14px; font-weight:700; font-size:.85rem;}
 
+  .editor-map-wrap{margin-top:8px;}
+  .editor-map-wrap.hidden{display:none;}
+  #editorMap{height:220px; border-radius:12px; overflow:hidden; border:1px solid var(--border);}
+
   .favorites-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
   .fav-chip{background:var(--card); border:1px solid var(--border); color:var(--text); border-radius:999px; padding:9px 14px; font-size:.82rem; display:flex; align-items:center; gap:6px;}
 
@@ -365,6 +369,11 @@
       <label>Buscar destino, negocio o lugar</label>
       <input type="text" id="editorSearch" placeholder="Restaurante, gasolinera, dirección…" autocomplete="off">
       <div class="search-results" id="editorResults"></div>
+      <button class="btn secondary" id="btnToggleEditorMap" style="margin-top:8px; font-size:.85rem;">🗺️ O elegir en el mapa</button>
+      <div class="editor-map-wrap hidden" id="editorMapWrap">
+        <div id="editorMap"></div>
+        <button class="btn secondary" id="btnAddMapPoint" style="display:none; width:100%; margin-top:8px; font-size:.85rem;">+ Añadir este punto</button>
+      </div>
     </div>
     <div class="favorites-row" id="favoritesRow"></div>
     <div id="editorStops"></div>
@@ -1179,7 +1188,13 @@ function openEditor(routeId){
   renderFavorites();
   document.getElementById('editorOverlay').classList.remove('hidden');
 }
-function closeEditor(){ document.getElementById('editorOverlay').classList.add('hidden'); }
+function closeEditor(){
+  document.getElementById('editorOverlay').classList.add('hidden');
+  document.getElementById('editorMapWrap').classList.add('hidden');
+  if(editorMapMarker){ editorMapMarker.remove(); editorMapMarker = null; }
+  editorMapPick = null;
+  document.getElementById('btnAddMapPoint').style.display = 'none';
+}
 function addEditorStop(name, lat, lon){
   editorStops.push({name, lat, lon});
   renderEditorStops();
@@ -1274,6 +1289,44 @@ document.getElementById('favoritesRow').addEventListener('click', e => {
   const chip = e.target.closest('.fav-chip'); if(!chip) return;
   const f = (store.favorites||[])[parseInt(chip.dataset.idx,10)]; if(!f) return;
   addEditorStop(f.name, f.lat, f.lon);
+});
+
+// Elegir un punto directamente en el mapa: para negocios o lugares muy
+// concretos que no estén en OpenStreetMap (y por tanto no aparecen en la
+// búsqueda), o simplemente cuando es más rápido tocar el sitio exacto.
+let editorMap = null, editorMapMarker = null, editorMapPick = null;
+document.getElementById('btnToggleEditorMap').addEventListener('click', () => {
+  const wrap = document.getElementById('editorMapWrap');
+  wrap.classList.toggle('hidden');
+  if(wrap.classList.contains('hidden')) return;
+  if(!editorMap){
+    const center = editorStops.length ? [editorStops[0].lon, editorStops[0].lat] : [ROUTE[0].lon, ROUTE[0].lat];
+    editorMap = new maplibregl.Map({container:'editorMap', style:'https://tiles.openfreemap.org/styles/liberty', center, zoom:8, attributionControl:{compact:true}});
+    editorMap.on('click', e => {
+      editorMapPick = e.lngLat;
+      if(editorMapMarker) editorMapMarker.remove();
+      editorMapMarker = new maplibregl.Marker({color:'#22d3ee'}).setLngLat(e.lngLat).addTo(editorMap);
+      document.getElementById('btnAddMapPoint').style.display = 'block';
+    });
+  }
+  setTimeout(() => editorMap.resize(), 60);
+});
+document.getElementById('btnAddMapPoint').addEventListener('click', async () => {
+  if(!editorMapPick) return;
+  const lat = editorMapPick.lat, lon = editorMapPick.lng;
+  let name = `Punto (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+  try{
+    const res = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}`);
+    const data = await res.json();
+    const p = data.features && data.features[0] && data.features[0].properties;
+    if(p) name = p.name || p.street || name;
+  }catch(e){}
+  addEditorStop(name, lat, lon);
+  showToast('✓ Punto añadido: ' + name);
+  editorMapMarker.remove();
+  editorMapMarker = null;
+  editorMapPick = null;
+  document.getElementById('btnAddMapPoint').style.display = 'none';
 });
 
 document.getElementById('closeEditor').addEventListener('click', closeEditor);
