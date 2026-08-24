@@ -218,6 +218,10 @@
   .dl-progress{height:8px; background:var(--bg2); border-radius:6px; overflow:hidden; margin-top:10px;}
   .dl-progress.hidden{display:none;}
   .dl-fill{height:100%; width:0%; background:var(--accent); transition:width .3s;}
+
+  .profile-chip{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; padding:10px 12px; background:var(--card2); border:1px solid var(--border); border-radius:12px; font-size:.8rem;}
+  #btnShareLocation.active{background:var(--go); color:#04221a;}
+  .companion-dot{width:28px; height:28px; border-radius:50%; background:#a855f7; border:3px solid #fff; box-shadow:0 0 0 5px rgba(168,85,247,.28); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:.72rem; font-family:var(--font-display);}
 </style>
 </head>
 <body>
@@ -313,6 +317,15 @@
     </div>
     <button class="btn secondary" id="btnOpenTracks" style="margin-top:8px; font-size:.85rem;">📼 Ver trayectos guardados</button>
   </div>
+
+  <div class="track-card">
+    <div class="track-status" id="shareStatus">Crea tu perfil para compartir posición con tu grupo.</div>
+    <button class="btn secondary" id="btnShareLocation" style="margin-top:8px;">👥 Compartir posición con el grupo</button>
+    <div class="profile-chip" id="profileChip" style="display:none;">
+      <span id="profileChipText"></span>
+      <button class="rr-btn" id="btnEditProfile" title="Editar perfil">✏️</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -322,6 +335,22 @@
     <div class="sheet-head"><h3>Tus rutas</h3><button class="sheet-close" id="closeRoutes">✕</button></div>
     <div id="routesList"></div>
     <button class="btn secondary" id="btnNewRoute" style="margin-top:4px;">+ Nueva ruta</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="profileOverlay">
+  <div class="sheet">
+    <div class="sheet-head"><h3 id="profileTitle">Crear tu perfil</h3><button class="sheet-close" id="closeProfile">✕</button></div>
+    <p class="muted-p">Con un nombre y un código de grupo (el mismo que use tu compañero) podéis veros el uno al otro en el mapa mientras compartís posición.</p>
+    <div class="field">
+      <label>Tu nombre</label>
+      <input type="text" id="profileName" placeholder="Ej. Xevi">
+    </div>
+    <div class="field">
+      <label>Código de grupo</label>
+      <input type="text" id="profileGroup" placeholder="Ej. pirineos2026xevi">
+    </div>
+    <button class="btn" id="btnSaveProfile">Guardar perfil</button>
   </div>
 </div>
 
@@ -374,6 +403,9 @@
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -904,6 +936,7 @@ function startWatch(){
     maybeLoadMaxspeed().then(updateSpeedSign);
     updateSpeedSign();
     maybeEnsureWakeLock();
+    maybeSharePosition();
   }, err => {
     document.getElementById('gpsDot').classList.remove('live');
     showToast('Sin señal GPS (' + err.message + ')');
@@ -1501,6 +1534,159 @@ document.getElementById('tracksList').addEventListener('click', e => {
 document.getElementById('btnOpenTracks').addEventListener('click', openTracksSheet);
 document.getElementById('closeTracks').addEventListener('click', closeTracksSheet);
 
+/* ================= Perfil y posición compartida con el grupo (Firebase) =================
+   Mismo proyecto de Firebase que MotoTrack (mismo dueño, misma cuenta), pero
+   con nombres de colección propios (mgt_members / mgt_positions) bajo la
+   misma ruta groups/{groupCode}/ ya cubierta por sus reglas de seguridad
+   (groups/{groupCode}/{document=**}), así que no hace falta tocar nada en
+   la consola de Firebase ni arriesgar mezclar datos entre las dos apps. */
+function escapeXml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+let fbAuth = null, fbDb = null, fbUser = null, profile = null;
+function initFirebase(){
+  if(fbAuth) return;
+  firebase.initializeApp({
+    apiKey: "AIzaSyB6GLbwORpD42e1RSwy3SJuc0Ux-xEWPC4",
+    authDomain: "mototrack-57e09.firebaseapp.com",
+    projectId: "mototrack-57e09",
+    storageBucket: "mototrack-57e09.firebasestorage.app",
+    messagingSenderId: "886144285506",
+    appId: "1:886144285506:web:8c669bf4b37873120726db"
+  });
+  fbAuth = firebase.auth();
+  fbDb = firebase.firestore();
+}
+function loadProfile(){
+  try{ profile = JSON.parse(localStorage.getItem('motogpstrack_profile_v1') || 'null'); }catch(e){ profile = null; }
+}
+function saveProfileLocal(){ try{ localStorage.setItem('motogpstrack_profile_v1', JSON.stringify(profile)); }catch(e){} }
+function ensureSignedIn(){
+  initFirebase();
+  if(fbUser) return Promise.resolve(fbUser);
+  return new Promise(resolve => {
+    const unsub = fbAuth.onAuthStateChanged(u => { if(u){ fbUser = u; unsub(); resolve(u); } });
+    fbAuth.signInAnonymously().catch(() => resolve(null));
+  });
+}
+function updateProfileChip(){
+  const chip = document.getElementById('profileChip');
+  const txt = document.getElementById('profileChipText');
+  if(profile){
+    chip.style.display = 'flex';
+    txt.innerHTML = `Perfil: <strong>${escapeXml(profile.name)}</strong> · grupo "${escapeXml(profile.groupCode)}"`;
+    document.getElementById('shareStatus').textContent = 'Comparte tu posición para que tu grupo te vea en el mapa.';
+  } else {
+    chip.style.display = 'none';
+  }
+}
+function openProfileOverlay(){
+  document.getElementById('profileTitle').textContent = profile ? 'Editar perfil' : 'Crear tu perfil';
+  document.getElementById('profileName').value = profile ? profile.name : '';
+  document.getElementById('profileGroup').value = profile ? profile.groupCode : '';
+  document.getElementById('profileOverlay').classList.remove('hidden');
+}
+function closeProfileOverlay(){ document.getElementById('profileOverlay').classList.add('hidden'); }
+document.getElementById('btnEditProfile').addEventListener('click', openProfileOverlay);
+document.getElementById('closeProfile').addEventListener('click', closeProfileOverlay);
+document.getElementById('btnSaveProfile').addEventListener('click', async () => {
+  const name = document.getElementById('profileName').value.trim();
+  const groupCode = document.getElementById('profileGroup').value.trim();
+  if(!name || !groupCode){ showToast('Pon un nombre y un código de grupo'); return; }
+  profile = {name, groupCode};
+  saveProfileLocal();
+  updateProfileChip();
+  closeProfileOverlay();
+  try{
+    const user = await ensureSignedIn();
+    if(user){
+      await fbDb.collection('groups').doc(groupCode).collection('mgt_members').doc(user.uid).set({
+        name, joinedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+  }catch(e){}
+});
+
+let positionSharingOn = false, lastShareWrite = 0, companionMarkers = {}, positionsUnsub = null;
+function updateShareBtn(){
+  const btn = document.getElementById('btnShareLocation');
+  btn.textContent = positionSharingOn ? '👥 Dejar de compartir posición' : '👥 Compartir posición con el grupo';
+  btn.classList.toggle('active', positionSharingOn);
+}
+async function writeMyPosition(){
+  if(!lastPos || !profile) return;
+  try{
+    const user = await ensureSignedIn();
+    if(!user) return;
+    await fbDb.collection('groups').doc(profile.groupCode).collection('mgt_positions').doc(user.uid).set({
+      name: profile.name, lat: lastPos.lat, lon: lastPos.lon,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }catch(e){ /* sin conexión: se reintenta en el próximo tick */ }
+}
+function maybeSharePosition(){
+  if(!positionSharingOn || !lastPos) return;
+  const now = Date.now();
+  if(now - lastShareWrite < 20000) return;
+  lastShareWrite = now;
+  writeMyPosition();
+}
+function updateCompanionMarker(uid, d){
+  if(!map) return;
+  const initial = (d.name || '?').trim().charAt(0).toUpperCase() || '?';
+  if(companionMarkers[uid]){
+    companionMarkers[uid].setLngLat([d.lon, d.lat]);
+  } else {
+    const el = document.createElement('div');
+    el.className = 'companion-dot'; el.textContent = initial;
+    companionMarkers[uid] = new maplibregl.Marker({element: el})
+      .setLngLat([d.lon, d.lat])
+      .setPopup(new maplibregl.Popup({offset:16}).setText(d.name || 'Compañero'))
+      .addTo(map);
+  }
+}
+function listenToCompanions(){
+  if(!profile) return;
+  initFirebase();
+  if(positionsUnsub) positionsUnsub();
+  positionsUnsub = fbDb.collection('groups').doc(profile.groupCode).collection('mgt_positions')
+    .onSnapshot(snap => {
+      const seen = new Set();
+      snap.forEach(doc => {
+        if(fbUser && doc.id === fbUser.uid) return; // no pintar mi propio marcador
+        const d = doc.data();
+        const ts = d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : 0;
+        if(Date.now() - ts > 10 * 60 * 1000) return; // más de 10 min sin actualizar: se considera desconectado
+        seen.add(doc.id);
+        updateCompanionMarker(doc.id, d);
+      });
+      Object.keys(companionMarkers).forEach(uid => {
+        if(!seen.has(uid)){ companionMarkers[uid].remove(); delete companionMarkers[uid]; }
+      });
+    }, () => {});
+}
+async function toggleShareLocation(){
+  if(!positionSharingOn){
+    if(!profile){ showToast('Crea primero tu perfil'); openProfileOverlay(); return; }
+    positionSharingOn = true;
+    updateShareBtn();
+    listenToCompanions();
+    if(lastPos) writeMyPosition();
+  } else {
+    positionSharingOn = false;
+    updateShareBtn();
+    if(positionsUnsub){ positionsUnsub(); positionsUnsub = null; }
+    Object.values(companionMarkers).forEach(m => m.remove());
+    companionMarkers = {};
+    if(profile && fbUser){
+      try{ await fbDb.collection('groups').doc(profile.groupCode).collection('mgt_positions').doc(fbUser.uid).delete(); }catch(e){}
+    }
+  }
+}
+document.getElementById('btnShareLocation').addEventListener('click', toggleShareLocation);
+
+loadProfile();
+updateProfileChip();
 refreshRouteHeader();
 initMap();
 openRoutesSheet();
