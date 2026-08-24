@@ -214,6 +214,10 @@
   .track-row .tr-name{font-weight:700; font-size:.9rem;}
   .track-row .tr-sub{font-size:.72rem; color:var(--muted); margin-top:2px;}
   .track-row .tr-btn{background:var(--bg2); border:1px solid var(--border); color:var(--text); width:34px; height:34px; border-radius:50%; font-size:.9rem;}
+
+  .dl-progress{height:8px; background:var(--bg2); border-radius:6px; overflow:hidden; margin-top:10px;}
+  .dl-progress.hidden{display:none;}
+  .dl-fill{height:100%; width:0%; background:var(--accent); transition:width .3s;}
 </style>
 </head>
 <body>
@@ -295,6 +299,12 @@
     <summary>⛰️ Perfil de elevación <span class="chev">›</span></summary>
     <div class="info-body" id="elevBody"></div>
   </details>
+
+  <div class="track-card">
+    <div class="track-status" id="offlineStatus">Descarga el mapa de la ruta antes de salir si vas a tener poca cobertura.</div>
+    <div class="dl-progress hidden" id="dlProgress"><div class="dl-fill" id="dlFill"></div></div>
+    <button class="btn secondary" id="btnDownloadOffline" style="margin-top:8px;">📥 Descargar mapa de la ruta (offline)</button>
+  </div>
 
   <div class="track-card">
     <div class="track-card-row">
@@ -1084,6 +1094,9 @@ function switchRoute(id){
   document.getElementById('elevBody').innerHTML = '';
   document.getElementById('weatherCard').open = false;
   document.getElementById('elevCard').open = false;
+  document.getElementById('offlineStatus').textContent = 'Descarga el mapa de la ruta antes de salir si vas a tener poca cobertura.';
+  document.getElementById('dlProgress').classList.add('hidden');
+  document.getElementById('dlFill').style.width = '0%';
   closeRoutesSheet();
 }
 function openRoutesSheet(){ renderRoutesList(); document.getElementById('routesOverlay').classList.remove('hidden'); }
@@ -1340,6 +1353,71 @@ async function loadElevation(){
   }
 }
 document.getElementById('elevCard').addEventListener('toggle', e => { if(e.target.open) loadElevation(); });
+
+/* ================= Mapas offline =================
+   MapLibre usa teselas vectoriales (estilo + tipografías + PBFs), no
+   imágenes sueltas como Leaflet, así que no hay una lista simple de URLs
+   que "descargar". En vez de eso, se recorre la carretera real de la ruta
+   moviendo la propia cámara del mapa: eso hace que MapLibre pida las
+   teselas que realmente necesita, y el service worker (caché "cache-first"
+   para todo, incluido origen cruzado) las guarda igual que si las hubieras
+   visto navegando. Repetir la descarga es barato: lo ya cacheado no se
+   vuelve a pedir por red. */
+let offlineDownloading = false;
+async function downloadOfflineMaps(){
+  if(offlineDownloading) return;
+  if(!map || !fullRouteGeoms.some(g => g)){ showToast('Espera a que cargue la ruta real primero'); return; }
+  offlineDownloading = true;
+  const btn = document.getElementById('btnDownloadOffline');
+  const statusEl = document.getElementById('offlineStatus');
+  const progressEl = document.getElementById('dlProgress');
+  const fillEl = document.getElementById('dlFill');
+  btn.disabled = true;
+  progressEl.classList.remove('hidden');
+  setFollow(false);
+
+  let allCoords = [];
+  for(let i=0;i<ROUTE.length-1;i++){
+    const seg = fullRouteGeoms[i] || [[ROUTE[i].lon,ROUTE[i].lat],[ROUTE[i+1].lon,ROUTE[i+1].lat]];
+    allCoords = allCoords.concat(seg);
+  }
+  // Un punto cada ~4 km a lo largo de la carretera real (no del área total:
+  // lo que importa es el corredor por el que vas a pasar, no el rectángulo
+  // que lo contiene, que sería mucho más para descargar).
+  const samples = [];
+  let lastSample = null, accDist = 0;
+  for(const [lon, lat] of allCoords){
+    if(!lastSample){ samples.push([lon,lat]); lastSample=[lon,lat]; continue; }
+    accDist += haversine(lastSample[1], lastSample[0], lat, lon);
+    if(accDist > 4){ samples.push([lon,lat]); lastSample=[lon,lat]; accDist=0; }
+  }
+  const last = allCoords[allCoords.length-1];
+  if(!samples.length || samples[samples.length-1][0]!==last[0] || samples[samples.length-1][1]!==last[1]) samples.push(last);
+
+  const zoom = is3D ? 13 : 13; // el mismo nivel de detalle que se usaría navegando
+  for(let i=0;i<samples.length;i++){
+    if(store.activeId !== downloadOfflineMaps.activeIdAtStart) break; // se cambió de ruta a mitad
+    statusEl.textContent = `Descargando teselas… ${i+1}/${samples.length}`;
+    fillEl.style.width = Math.round(((i+1)/samples.length)*100) + '%';
+    await new Promise(resolve => {
+      let done = false;
+      const finish = () => { if(!done){ done = true; resolve(); } };
+      map.once('idle', finish);
+      map.jumpTo({center: samples[i], zoom});
+      setTimeout(finish, 4000); // por si una tesela caída deja 'idle' sin disparar nunca
+    });
+  }
+  statusEl.textContent = `✓ Descargado (${samples.length} tramos a lo largo de la ruta). Si en algún punto no había cobertura al descargar, esa zona puede seguir faltando.`;
+  fillEl.style.width = '100%';
+  btn.disabled = false;
+  offlineDownloading = false;
+  fitToRoute();
+}
+downloadOfflineMaps.activeIdAtStart = null;
+document.getElementById('btnDownloadOffline').addEventListener('click', () => {
+  downloadOfflineMaps.activeIdAtStart = store.activeId;
+  downloadOfflineMaps();
+});
 
 /* ================= Grabación de trayectos (independiente de la ruta activa) =================
    GPS propio, separado del de navegación: se puede grabar sin tener ninguna
