@@ -189,7 +189,9 @@
   .favorites-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
   .fav-chip{background:var(--card); border:1px solid var(--border); color:var(--text); border-radius:999px; padding:9px 14px; font-size:.82rem; display:flex; align-items:center; gap:6px;}
 
-  .stop-row{display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; background:var(--card); border:1px solid var(--border); margin-bottom:6px;}
+  .stop-row{display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px; background:var(--card); border:1px solid var(--border); margin-bottom:6px; transition:transform .15s;}
+  .stop-row.dragging{transition:none; opacity:.92; box-shadow:0 8px 20px rgba(0,0,0,.45); position:relative; z-index:10;}
+  .stop-row .sr-handle{color:var(--muted); font-size:1.15rem; padding:2px 4px; flex:none; cursor:grab; touch-action:none; -webkit-user-select:none; user-select:none;}
   .stop-row .sr-num{width:24px; height:24px; border-radius:50%; background:var(--accent); color:var(--accent-ink); font-family:var(--font-display); font-weight:800; font-size:.72rem; display:flex; align-items:center; justify-content:center; flex:none;}
   .stop-row .sr-name{flex:1; min-width:0; font-size:.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .stop-row .sr-del{background:transparent; border:none; color:var(--danger); font-size:1.1rem; width:30px; height:30px; flex:none;}
@@ -1257,11 +1259,60 @@ function addEditorStop(name, lat, lon){
 function renderEditorStops(){
   document.getElementById('editorStops').innerHTML = editorStops.map((s,i) => `
     <div class="stop-row">
+      <div class="sr-handle">⠿</div>
       <div class="sr-num">${i+1}</div>
       <div class="sr-name">${s.name}</div>
       <button class="sr-del" data-idx="${i}">✕</button>
     </div>`).join('');
 }
+
+// Reordenar paradas arrastrando el asa (⠿): funciona con dedo o ratón, sin
+// librerías externas (Pointer Events, capturado en el asa). Mientras se
+// arrastra no se toca el array ni se vuelve a pintar la lista (evitaría
+// saltos raros) — solo al soltar se reordena editorStops de verdad.
+let stopDrag = null;
+document.getElementById('editorStops').addEventListener('pointerdown', e => {
+  const handle = e.target.closest('.sr-handle'); if(!handle) return;
+  const row = handle.closest('.stop-row');
+  const rows = Array.from(document.querySelectorAll('#editorStops .stop-row'));
+  const idx = rows.indexOf(row);
+  const rowHeight = row.getBoundingClientRect().height + 6; // + margin-bottom
+  stopDrag = {idx, targetIdx: idx, startY: e.clientY, rowHeight, el: row, rows};
+  row.classList.add('dragging');
+  handle.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+document.getElementById('editorStops').addEventListener('pointermove', e => {
+  if(!stopDrag) return;
+  const dy = e.clientY - stopDrag.startY;
+  stopDrag.el.style.transform = `translateY(${dy}px)`;
+  const shift = Math.round(dy / stopDrag.rowHeight);
+  const newTarget = Math.max(0, Math.min(stopDrag.rows.length - 1, stopDrag.idx + shift));
+  if(newTarget !== stopDrag.targetIdx){
+    stopDrag.targetIdx = newTarget;
+    stopDrag.rows.forEach((r, i) => {
+      if(r === stopDrag.el) return;
+      let off = 0;
+      if(stopDrag.idx < newTarget && i > stopDrag.idx && i <= newTarget) off = -1;
+      if(stopDrag.idx > newTarget && i < stopDrag.idx && i >= newTarget) off = 1;
+      r.style.transform = off ? `translateY(${off * stopDrag.rowHeight}px)` : '';
+    });
+  }
+});
+function endStopDrag(){
+  if(!stopDrag) return;
+  const {idx, targetIdx, rows} = stopDrag;
+  rows.forEach(r => { r.style.transform = ''; r.classList.remove('dragging'); });
+  if(targetIdx !== idx){
+    const [moved] = editorStops.splice(idx, 1);
+    editorStops.splice(targetIdx, 0, moved);
+    renderEditorStops();
+  }
+  stopDrag = null;
+}
+document.getElementById('editorStops').addEventListener('pointerup', endStopDrag);
+document.getElementById('editorStops').addEventListener('pointercancel', endStopDrag);
+
 document.getElementById('editorStops').addEventListener('click', e => {
   const btn = e.target.closest('.sr-del'); if(!btn) return;
   editorStops.splice(parseInt(btn.dataset.idx,10), 1);
