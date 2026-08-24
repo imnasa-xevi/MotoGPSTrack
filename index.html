@@ -188,6 +188,22 @@
   .stop-row .sr-num{width:24px; height:24px; border-radius:50%; background:var(--accent); color:var(--accent-ink); font-family:var(--font-display); font-weight:800; font-size:.72rem; display:flex; align-items:center; justify-content:center; flex:none;}
   .stop-row .sr-name{flex:1; min-width:0; font-size:.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .stop-row .sr-del{background:transparent; border:none; color:var(--danger); font-size:1.1rem; width:30px; height:30px; flex:none;}
+
+  .info-card{background:var(--card); border:1px solid var(--border); border-radius:16px; margin-top:10px; overflow:hidden;}
+  .info-card summary{list-style:none; cursor:pointer; padding:13px 16px; display:flex; align-items:center; justify-content:space-between; font-size:.85rem; font-weight:700;}
+  .info-card summary::-webkit-details-marker{display:none;}
+  .info-card summary .chev{color:var(--muted); transition:transform .2s;}
+  .info-card[open] summary .chev{transform:rotate(90deg);}
+  .info-body{padding:0 16px 14px;}
+  .info-empty{color:var(--muted); font-size:.82rem; padding:6px 0;}
+
+  .weather-row{display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); font-size:.82rem;}
+  .weather-row:last-child{border-bottom:none;}
+  .weather-row .wr-name{color:var(--text); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:10px;}
+  .weather-row .wr-val{color:var(--muted); flex:none; text-align:right;}
+
+  .elev-svg{width:100%; height:auto; display:block; margin-top:4px;}
+  .elev-minmax{display:flex; justify-content:space-between; font-size:.72rem; color:var(--muted); margin-top:4px;}
 </style>
 </head>
 <body>
@@ -259,6 +275,16 @@
       <div class="stat-value go" id="statNext">—</div>
     </div>
   </div>
+
+  <details class="info-card" id="weatherCard">
+    <summary>☁️ Tiempo en la ruta <span class="chev">›</span></summary>
+    <div class="info-body" id="weatherList"></div>
+  </details>
+
+  <details class="info-card" id="elevCard">
+    <summary>⛰️ Perfil de elevación <span class="chev">›</span></summary>
+    <div class="info-body" id="elevBody"></div>
+  </details>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1020,6 +1046,13 @@ function switchRoute(id){
     loadFuelStations();
     fitToRoute();
   }
+  // El tiempo y la elevación son de la ruta anterior: se descartan y se
+  // recargarán (con pereza, al abrir cada panel) para la ruta nueva.
+  weatherLoaded = false; elevLoaded = false;
+  document.getElementById('weatherList').innerHTML = '';
+  document.getElementById('elevBody').innerHTML = '';
+  document.getElementById('weatherCard').open = false;
+  document.getElementById('elevCard').open = false;
   closeRoutesSheet();
 }
 function openRoutesSheet(){ renderRoutesList(); document.getElementById('routesOverlay').classList.remove('hidden'); }
@@ -1183,6 +1216,99 @@ document.getElementById('btnSaveRoute').addEventListener('click', () => {
   }
   closeEditor();
 });
+
+/* ================= Tiempo en cada parada (Open-Meteo, sin API key) ================= */
+let weatherLoaded = false;
+function weatherIcon(code){
+  if(code===0) return '☀️';
+  if(code<=3) return '⛅';
+  if(code<=48) return '🌫️';
+  if(code<=67) return '🌧️';
+  if(code<=77) return '🌨️';
+  if(code<=82) return '🌦️';
+  return '⛈️';
+}
+async function loadWeather(){
+  if(weatherLoaded) return;
+  weatherLoaded = true;
+  const listEl = document.getElementById('weatherList');
+  listEl.innerHTML = '<div class="info-empty">Cargando el tiempo de cada parada…</div>';
+  try{
+    const results = await Promise.all(ROUTE.map(async wp => {
+      try{
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${wp.lat}&longitude=${wp.lon}&current=temperature_2m,wind_speed_10m,weather_code&timezone=auto`);
+        const data = await res.json();
+        return {name: wp.name, temp: Math.round(data.current.temperature_2m), wind: Math.round(data.current.wind_speed_10m), code: data.current.weather_code};
+      }catch(e){ return {name: wp.name, temp: null}; }
+    }));
+    listEl.innerHTML = results.map(r => `
+      <div class="weather-row">
+        <div class="wr-name">${r.name}</div>
+        <div class="wr-val">${r.temp !== null ? (weatherIcon(r.code) + ' ' + r.temp + '°C · 💨 ' + r.wind + ' km/h') : '—'}</div>
+      </div>`).join('');
+  }catch(e){
+    weatherLoaded = false;
+    listEl.innerHTML = '<div class="info-empty">Sin conexión para consultar el tiempo</div>';
+  }
+}
+document.getElementById('weatherCard').addEventListener('toggle', e => { if(e.target.open) loadWeather(); });
+
+/* ================= Perfil de elevación (Open-Meteo, sobre la carretera real) ================= */
+let elevLoaded = false;
+function renderElevSvg(dist, elevs){
+  const W = 320, H = 100, PAD = 4;
+  const maxD = dist[dist.length-1] || 1;
+  const minE = Math.min(...elevs), maxE = Math.max(...elevs);
+  const rangeE = Math.max(1, maxE - minE);
+  const x = d => PAD + (d/maxD) * (W-2*PAD);
+  const y = e => H - PAD - ((e-minE)/rangeE) * (H-2*PAD);
+  let path = `M ${x(0).toFixed(1)} ${y(elevs[0]).toFixed(1)}`;
+  for(let i=1;i<elevs.length;i++) path += ` L ${x(dist[i]).toFixed(1)} ${y(elevs[i]).toFixed(1)}`;
+  const area = path + ` L ${x(dist[dist.length-1]).toFixed(1)} ${H-PAD} L ${x(0).toFixed(1)} ${H-PAD} Z`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="elev-svg" preserveAspectRatio="none">
+      <path d="${area}" fill="rgba(34,211,238,.18)"/>
+      <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    </svg>
+    <div class="elev-minmax"><span>${Math.round(minE)} m mín</span><span>${Math.round(maxE)} m máx</span></div>`;
+}
+async function loadElevation(){
+  if(elevLoaded) return;
+  const bodyEl = document.getElementById('elevBody');
+  if(!fullRouteGeoms.some(g => g)){
+    bodyEl.innerHTML = '<div class="info-empty">Aún cargando la carretera real, prueba en unos segundos…</div>';
+    return;
+  }
+  elevLoaded = true;
+  bodyEl.innerHTML = '<div class="info-empty">Calculando el perfil…</div>';
+  try{
+    let allCoords = [];
+    for(let i=0;i<ROUTE.length-1;i++){
+      const seg = fullRouteGeoms[i] || [[ROUTE[i].lon,ROUTE[i].lat],[ROUTE[i+1].lon,ROUTE[i+1].lat]];
+      allCoords = allCoords.concat(seg);
+    }
+    if(allCoords.length < 2){ bodyEl.innerHTML = '<div class="info-empty">Ruta demasiado corta para un perfil</div>'; return; }
+    // Open-Meteo rechaza peticiones de más de 100 coordenadas: se deja
+    // margen de sobra (90) porque el punto final se añade aparte y el paso
+    // de muestreo puede quedarse un poco corto según cómo divida el total.
+    const N = 90;
+    const step = Math.max(1, Math.floor(allCoords.length / N));
+    const sampled = [];
+    for(let i=0;i<allCoords.length;i+=step) sampled.push(allCoords[i]);
+    const last = allCoords[allCoords.length-1];
+    if(sampled[sampled.length-1][0] !== last[0] || sampled[sampled.length-1][1] !== last[1]) sampled.push(last);
+    if(sampled.length > 100) sampled.length = 100;
+    const lats = sampled.map(c=>c[1]).join(','), lons = sampled.map(c=>c[0]).join(',');
+    const res = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`);
+    const data = await res.json();
+    const dist = [0];
+    for(let i=1;i<sampled.length;i++) dist.push(dist[i-1] + haversine(sampled[i-1][1],sampled[i-1][0], sampled[i][1],sampled[i][0]));
+    bodyEl.innerHTML = renderElevSvg(dist, data.elevation);
+  }catch(e){
+    elevLoaded = false;
+    bodyEl.innerHTML = '<div class="info-empty">Sin conexión para calcular el perfil</div>';
+  }
+}
+document.getElementById('elevCard').addEventListener('toggle', e => { if(e.target.open) loadElevation(); });
 
 refreshRouteHeader();
 initMap();
