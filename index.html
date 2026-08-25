@@ -510,7 +510,7 @@ let is3D = false, mapRotateMode = false, lastGpsHeading = null;
 let fullscreenNav = false, wakeLock = null, navPaused = false;
 let wpMarkers = [], meMarker = null;
 let fullRouteGeoms = new Array(ROUTE.length - 1).fill(null);
-let singleDestGeom = null, singleDestGeomLoading = false;
+let fromMeGeom = null, fromMeGeomLoading = false; // el tramo desde tu posición real hasta el primer punto de la ruta
 let routeModel = null, routedIdx = -1, routeRequestBusy = false, spokenKeys = new Set();
 let radarPoints = [], radarMarkers = [], radarAnnounced = new Set();
 let maxspeedWays = [], maxspeedFetchedAt = null;
@@ -537,14 +537,14 @@ async function fetchOsrmRoute(from, to){
 async function loadFullRouteGeometry(){
   const activeIdAtStart = store.activeId;
   const cacheKey = 'routegeo_' + activeIdAtStart; // antes era fija: una ruta reutilizaba la caché de otra
-  singleDestGeom = null;
+  fromMeGeom = null;
   fullRouteGeoms = new Array(Math.max(0, ROUTE.length - 1)).fill(null);
   try{
     const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
     if(Array.isArray(cached) && cached.length === ROUTE.length - 1 && cached.every(g => g)){
       fullRouteGeoms = cached;
       renderRouteLayer();
-      maybeLoadSingleDestGeom();
+      maybeLoadFromMeGeom();
       return;
     }
   }catch(e){}
@@ -563,25 +563,28 @@ async function loadFullRouteGeometry(){
   if(fullRouteGeoms.every(g => g)){
     try{ localStorage.setItem(cacheKey, JSON.stringify(fullRouteGeoms)); }catch(e){}
   }
-  maybeLoadSingleDestGeom();
+  maybeLoadFromMeGeom();
 }
 
-/* Con un solo destino, el bucle de arriba no genera ningún tramo (ROUTE.length-1
-   es 0), así que no había ninguna carretera que calcular ni dibujar. Aquí se
-   pide aparte la ruta real desde tu posición hasta ese único destino. Como
-   rebuildMapForRoute/loadFullRouteGeometry puede ejecutarse ANTES de que
-   llegue la primera posición GPS, esto también se reintenta en cada tick de
-   GPS (ver watchPosition) hasta conseguirlo. */
-async function maybeLoadSingleDestGeom(){
-  if(ROUTE.length !== 1 || !lastPos || singleDestGeom || singleDestGeomLoading) return;
-  singleDestGeomLoading = true;
+/* Mientras no hayas llegado al primer punto de la ruta (currentIdx === 0),
+   el "tramo actual" de verdad es desde donde estás ahora mismo hasta ese
+   primer punto — no el tramo fijo entre el punto 1 y el 2 de la ruta
+   planificada, que es lo que dibuja el bucle de arriba. Antes esto solo se
+   hacía para rutas de un único destino; ahora aplica siempre al primer
+   tramo de cualquier ruta. Como rebuildMapForRoute/loadFullRouteGeometry
+   puede ejecutarse ANTES de que llegue la primera posición GPS, esto
+   también se reintenta en cada tick de GPS (ver watchPosition) hasta
+   conseguirlo. */
+async function maybeLoadFromMeGeom(){
+  if(currentIdx !== 0 || !lastPos || fromMeGeom || fromMeGeomLoading) return;
+  fromMeGeomLoading = true;
   const activeIdAtStart = store.activeId;
   try{
-    singleDestGeom = await fetchOsrmRoute(lastPos, ROUTE[0]);
+    fromMeGeom = await fetchOsrmRoute(lastPos, ROUTE[0]);
   }catch(e){
-    singleDestGeom = null;
+    fromMeGeom = null;
   }
-  singleDestGeomLoading = false;
+  fromMeGeomLoading = false;
   if(store.activeId !== activeIdAtStart) return; // se cambió de ruta mientras se pedía
   renderRouteLayer();
 }
@@ -594,15 +597,15 @@ function renderRouteLayer(){
     const status = (i+1 < currentIdx) ? 'done' : (i+1 === currentIdx ? 'current' : 'upcoming');
     features.push({type:'Feature', properties:{status}, geometry:{type:'LineString', coordinates:coords}});
   }
-  if(ROUTE.length === 1 && lastPos && singleDestGeom){
+  if(currentIdx === 0 && lastPos && fromMeGeom){
     // Solo se añade aquí (tramo sólido "actual") cuando ya se tiene la
     // carretera real; mientras se carga, se ve la línea discontinua de
     // single-dest-pending para no mostrar una recta como si fuera la ruta.
-    features.push({type:'Feature', properties:{status:'current'}, geometry:{type:'LineString', coordinates:singleDestGeom}});
+    features.push({type:'Feature', properties:{status:'current'}, geometry:{type:'LineString', coordinates:fromMeGeom}});
   }
   map.getSource('route').setData({type:'FeatureCollection', features});
   if(map.getSource('single-dest-pending')){
-    const showPending = ROUTE.length === 1 && lastPos && !singleDestGeom;
+    const showPending = currentIdx === 0 && lastPos && !fromMeGeom;
     map.getSource('single-dest-pending').setData(showPending
       ? {type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:[[lastPos.lon,lastPos.lat],[ROUTE[0].lon,ROUTE[0].lat]]}}
       : {type:'FeatureCollection', features:[]});
@@ -961,6 +964,7 @@ function advanceIfClose(){
   const d = haversine(lastPos.lat, lastPos.lon, wp.lat, wp.lon);
   if(d < 0.6){ // 600 m
     currentIdx++;
+    if(currentIdx === 1) fromMeGeom = null; // ya no hace falta el tramo "desde mí": el 1 ya se alcanzó
     updateWpMarkerStyles();
     showToast('✓ ' + wp.name);
     if(currentIdx < ROUTE.length) speakIfPossible('Siguiente destino: ' + ROUTE[currentIdx].name);
@@ -1012,7 +1016,7 @@ function startWatch(){
     updateSpeedSign();
     maybeEnsureWakeLock();
     maybeSharePosition();
-    maybeLoadSingleDestGeom();
+    maybeLoadFromMeGeom();
   }, err => {
     document.getElementById('gpsDot').classList.remove('live');
     showToast('Sin señal GPS (' + err.message + ')');
