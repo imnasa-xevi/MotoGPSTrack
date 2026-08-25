@@ -501,6 +501,7 @@ function fmtDist(m){
 
 /* ================= Estado ================= */
 let map = null, lastPos = null, watchId = null, currentIdx = 0, followMode = true;
+let lastManualMapInteraction = 0; // para reactivar "seguir" solo si el usuario no ha vuelto a tocar el mapa
 let is3D = false, mapRotateMode = false, lastGpsHeading = null;
 let fullscreenNav = false, wakeLock = null, navPaused = false;
 let wpMarkers = [], meMarker = null;
@@ -983,6 +984,7 @@ function startWatch(){
     if(h !== null && h !== undefined && !isNaN(h)) lastGpsHeading = h;
     document.getElementById('gpsDot').classList.add('live');
     advanceIfClose();
+    maybeResumeFollow();
     updateMeMarker(lastPos.lat, lastPos.lon);
     applyRotation();
     updateStats(pos);
@@ -1080,7 +1082,7 @@ function initMap(){
     fitToRoute();
   });
 
-  map.on('dragstart', () => setFollow(false));
+  map.on('dragstart', () => { setFollow(false); lastManualMapInteraction = Date.now(); });
 }
 
 function fitToRoute(){
@@ -1095,6 +1097,16 @@ function setFollow(on){
   followMode = on;
   document.getElementById('btnFollow').classList.toggle('off', !on);
   if(on && lastPos) map.easeTo({center:[lastPos.lon, lastPos.lat], zoom: Math.max(map.getZoom(),15.5)});
+}
+// Si "seguir" se desactivó (arrastre del mapa, a veces sin querer por un
+// bache o vibración de la moto, o al pulsar "ver ruta completa") y no
+// vuelves a tocar el mapa, se reactiva solo a los pocos segundos — igual
+// que hacen Google Maps/Waze — para que el mapa no se quede descentrado
+// para siempre por un toque accidental durante la marcha.
+const FOLLOW_AUTO_RESUME_MS = 12000;
+function maybeResumeFollow(){
+  if(followMode || navPaused) return;
+  if(Date.now() - lastManualMapInteraction > FOLLOW_AUTO_RESUME_MS) setFollow(true);
 }
 
 function set3D(on){
@@ -1152,7 +1164,7 @@ document.getElementById('btnStop').addEventListener('click', () => {
   document.getElementById('permCard').style.display = 'block';
 });
 document.getElementById('btnFullscreen').addEventListener('click', toggleFullscreen);
-document.getElementById('btnOverview').addEventListener('click', () => { setFollow(false); fitToRoute(); });
+document.getElementById('btnOverview').addEventListener('click', () => { setFollow(false); lastManualMapInteraction = Date.now(); fitToRoute(); });
 document.getElementById('btnFollow').addEventListener('click', () => setFollow(!followMode));
 document.getElementById('btnRotate').addEventListener('click', () => {
   mapRotateMode = !mapRotateMode;
