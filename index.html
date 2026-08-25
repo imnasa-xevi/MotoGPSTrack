@@ -1036,7 +1036,7 @@ function initMap(){
   if(map) return;
   map = new maplibregl.Map({
     container: 'map',
-    style: 'https://tiles.openfreemap.org/styles/liberty',
+    style: 'https://tiles.openfreemap.org/styles/dark',
     center: [ROUTE[0].lon, ROUTE[0].lat],
     zoom: 6.5,
     attributionControl: {compact:true}
@@ -1418,7 +1418,7 @@ function openMapPick(){
   document.getElementById('mapPickOverlay').classList.remove('hidden');
   if(!editorMap){
     const center = editorStops.length ? [editorStops[0].lon, editorStops[0].lat] : [ROUTE[0].lon, ROUTE[0].lat];
-    editorMap = new maplibregl.Map({container:'editorMap', style:'https://tiles.openfreemap.org/styles/liberty', center, zoom:8, attributionControl:{compact:true}});
+    editorMap = new maplibregl.Map({container:'editorMap', style:'https://tiles.openfreemap.org/styles/dark', center, zoom:8, attributionControl:{compact:true}});
     editorMap.on('click', e => {
       editorMapPick = e.lngLat;
       if(editorMapMarker) editorMapMarker.remove();
