@@ -129,7 +129,11 @@
 
   .session-btns{display:none; gap:8px; margin-top:12px;}
 
-  .toast{position:fixed; left:50%; bottom:calc(24px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--card2); border:1px solid var(--border); color:var(--text); padding:12px 18px; border-radius:14px; font-size:.85rem; opacity:0; pointer-events:none; transition:opacity .25s; z-index:5000; max-width:88vw; text-align:center;}
+  /* z-index 3200: por encima del mapa en pantalla completa (3000) para que
+     se vea mientras navegas, pero por debajo de cualquier panel/overlay
+     (4000+) para que un aviso no tape botones de un panel que tengas
+     abierto en ese momento (p. ej. "Continuar" del teclado de km). */
+  .toast{position:fixed; left:50%; bottom:calc(24px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--card2); border:1px solid var(--border); color:var(--text); padding:12px 18px; border-radius:14px; font-size:.85rem; opacity:0; pointer-events:none; transition:opacity .25s; z-index:3200; max-width:88vw; text-align:center;}
   .toast.show{opacity:1;}
 
   .maplibregl-ctrl-attrib{font-size:9px !important;}
@@ -729,6 +733,17 @@ async function loadRadars(){
     renderRadarMarkers();
   }catch(e){}
 }
+// Con una ruta larga (decenas de radares en toda Francia/España) mostrarlos
+// todos a la vez, alejado del todo, amontona el mapa hasta hacerlo
+// ilegible. Se ocultan por debajo de un zoom mínimo, igual que hacen los
+// puntos de interés en cualquier app de mapas — de cerca (navegando de
+// verdad) sí interesa verlos todos.
+const RADAR_MIN_ZOOM = 9;
+function updateRadarVisibility(){
+  if(!map) return;
+  const show = map.getZoom() >= RADAR_MIN_ZOOM;
+  radarMarkers.forEach(m => { m.getElement().style.display = show ? 'flex' : 'none'; });
+}
 function renderRadarMarkers(){
   if(!map) return;
   radarMarkers.forEach(m => m.remove());
@@ -737,6 +752,7 @@ function renderRadarMarkers(){
     el.className = 'radar-dot'; el.textContent = '📷';
     return new maplibregl.Marker({element: el}).setLngLat([r.lon, r.lat]).addTo(map);
   });
+  updateRadarVisibility();
 }
 function checkRadarAlerts(){
   const alertEl = document.getElementById('radarAlert');
@@ -1083,6 +1099,7 @@ function initMap(){
   });
 
   map.on('dragstart', () => { setFollow(false); lastManualMapInteraction = Date.now(); });
+  map.on('zoom', updateRadarVisibility);
 }
 
 function fitToRoute(){
@@ -1114,7 +1131,13 @@ function set3D(on){
   document.querySelectorAll('#modeToggle button').forEach(b => b.classList.toggle('on', b.dataset.mode === (on?'3d':'2d')));
   if(on){
     map.setTerrain({source:'terrain-dem', exaggeration:1.4});
-    map.easeTo({pitch:62, duration:500});
+    // El 3D solo tiene sentido de cerca (ver el relieve de un puerto de
+    // montaña): con la vista muy alejada (toda la ruta, un país entero) una
+    // inclinación de 62° "estira" la imagen hacia el horizonte y deforma la
+    // geografía en algo irreconocible. Si estás muy alejado, se acerca a la
+    // vez que se inclina.
+    const targetZoom = Math.max(map.getZoom(), 12);
+    map.easeTo({pitch:62, zoom: targetZoom, duration:500});
   } else {
     map.setTerrain(null);
     map.easeTo({pitch:0, duration:500});
@@ -1344,7 +1367,14 @@ document.getElementById('editorSearch').addEventListener('input', e => {
     try{
       // lang solo admite default/de/en/fr en Photon (probado): "es" hace que
       // la petición falle en silencio y devuelva 0 resultados siempre.
-      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6`);
+      // lat/lon: sin esto, un término genérico como "gasolinera" o
+      // "restaurante" devuelve negocios con ese nombre literal en cualquier
+      // parte del mundo (México, Bolivia…) en vez de los más cercanos.
+      // Prioridad: tu posición GPS real > última parada ya añadida > primer
+      // punto de la ruta activa.
+      const biasPoint = lastPos || (editorStops.length ? editorStops[editorStops.length-1] : ROUTE[0]);
+      const bias = biasPoint ? `&lat=${biasPoint.lat}&lon=${biasPoint.lon}` : '';
+      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6${bias}`);
       const data = await res.json();
       lastSearchFeatures = data.features || [];
       resultsEl.innerHTML = lastSearchFeatures.map((f,i) => {
