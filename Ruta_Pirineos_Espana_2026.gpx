@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<gpx version="1.1" creator="Claude - Transpirenaica por España 2026" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>Transpirenaica por España - 5 dias</name>
+    <desc>Girona - Vielha - Tourmalet - Sallent de Gallego - Isaba (Venta de Juan Pito) - Ainsa - Girona. 1-5 sep 2026. Coordenadas orientativas de pueblo/puerto; dejar que el GPS calcule la carretera entre puntos (modo moto/evitar autopistas).</desc>
+  </metadata>
+
+  <!-- DIA 1: Girona -> Vielha -->
+  <rte>
+    <name>Dia 1 - Girona a Vielha</name>
+    <desc>~360 km. Bonaigua.</desc>
+    <rtept lat="41.9794" lon="2.8214"><name>Girona</name><desc>Salida 08:00</desc></rtept>
+    <rtept lat="42.1817" lon="2.4900"><name>Olot</name></rtept>
+    <rtept lat="42.2011" lon="2.1904"><name>Ripoll</name><desc>Parada corta</desc></rtept>
+    <rtept lat="42.4326" lon="1.9285"><name>Puigcerda</name></rtept>
+    <rtept lat="42.3585" lon="1.4609"><name>La Seu d'Urgell</name></rtept>
+    <rtept lat="42.4131" lon="1.1300"><name>Sort</name><desc>Comida ligera</desc></rtept>
+    <rtept lat="42.6197" lon="1.1200"><name>Esterri d'Aneu</name></rtept>
+    <rtept lat="42.6986" lon="0.9908"><name>Port de la Bonaigua</name><desc>2.072 m - puerto protagonista</desc></rtept>
+    <rtept lat="42.7027" lon="0.7967"><name>Vielha</name><desc>Noche 1 - Hotel Eth Pomer / Hotel Anglada</desc></rtept>
+  </rte>
+
+  <!-- DIA 2: Vielha -> Sallent de Gallego -->
+  <rte>
+    <name>Dia 2 - Vielha a Sallent de Gallego (etapa reina)</name>
+    <desc>~300 km. Peyresourde, Aspin, Tourmalet, Soulor, Aubisque, Pourtalet.</desc>
+    <rtept lat="42.7027" lon="0.7967"><name>Vielha</name><desc>Salida 07:30</desc></rtept>
+    <rtept lat="42.7897" lon="0.5947"><name>Bagneres-de-Luchon</name></rtept>
+    <rtept lat="42.7967" lon="0.4494"><name>Col de Peyresourde</name><desc>1.569 m</desc></rtept>
+    <rtept lat="42.9364" lon="0.3286"><name>Col d'Aspin</name><desc>1.489 m</desc></rtept>
+    <rtept lat="42.9106" lon="0.1447"><name>Col du Tourmalet</name><desc>2.115 m - parada 30-45 min</desc></rtept>
+    <rtept lat="42.8814" lon="-0.0064"><name>Luz-Saint-Sauveur</name><desc>Comida ligera</desc></rtept>
+    <rtept lat="42.9814" lon="-0.2081"><name>Col du Soulor</name><desc>1.474 m</desc></rtept>
+    <rtept lat="42.9767" lon="-0.3392"><name>Col d'Aubisque</name><desc>1.709 m</desc></rtept>
+    <rtept lat="42.9236" lon="-0.3653"><name>Eaux-Chaudes</name></rtept>
+    <rtept lat="42.8083" lon="-0.4358"><name>Col du Pourtalet</name><desc>1.794 m - cruce de vuelta a Espana</desc></rtept>
+    <rtept lat="42.7761" lon="-0.3833"><name>Formigal</name></rtept>
+    <rtept lat="42.7719" lon="-0.3336"><name>Sallent de Gallego</name><desc>Noche 2 - SNO Villa de Sallent</desc></rtept>
+  </rte>
+
+  <!-- DIA 3: Sallent de Gallego -> Isaba -->
+  <rte>
+    <name>Dia 3 - Sallent de Gallego a Isaba</name>
+    <desc>~190 km. Hecho, Anso, Roncal, Belagua, Venta de Juan Pito.</desc>
+    <rtept lat="42.7719" lon="-0.3336"><name>Sallent de Gallego</name><desc>Salida 09:00</desc></rtept>
+    <rtept lat="42.6167" lon="-0.3167"><name>Biescas</name></rtept>
+    <rtept lat="42.5700" lon="-0.5500"><name>Jaca</name><desc>Repostar</desc></rtept>
+    <rtept lat="42.7186" lon="-0.7503"><name>Hecho</name></rtept>
+    <rtept lat="42.7539" lon="-0.7997"><name>Anso</name></rtept>
+    <rtept lat="42.7897" lon="-0.9578"><name>Roncal</name></rtept>
+    <rtept lat="42.8664" lon="-0.8783"><name>Isaba</name><desc>Noche 3 - Hostal Lola</desc></rtept>
+    <rtept lat="42.9700" lon="-0.8100"><name>Belagua</name></rtept>
+    <rtept lat="42.9833" lon="-0.7550"><name>Venta de Juan Pito</name><desc>Comer 13:30-14:00 - final gastronomico</desc></rtept>
+  </rte>
+
+  <!-- DIA 4: Isaba -> Ainsa -->
+  <rte>
+    <name>Dia 4 - Isaba a Ainsa</name>
+    <desc>~130 km. Jornada corta.</desc>
+    <rtept lat="42.8664" lon="-0.8783"><name>Isaba</name><desc>Salida 09:30</desc></rtept>
+    <rtept lat="42.5700" lon="-0.5500"><name>Jaca</name></rtept>
+    <rtept lat="42.5192" lon="-0.3608"><name>Sabinanigo</name></rtept>
+    <rtept lat="42.4159" lon="0.1381"><name>Ainsa</name><desc>Noche 4 - Ainsa Sanchez / Meson de L'Ainsa</desc></rtept>
+  </rte>
+
+  <!-- DIA 5: Ainsa -> Girona -->
+  <rte>
+    <name>Dia 5 - Ainsa a Girona</name>
+    <desc>~370 km. Regreso panoramico.</desc>
+    <rtept lat="42.4159" lon="0.1381"><name>Ainsa</name><desc>Salida 08:30</desc></rtept>
+    <rtept lat="42.4167" lon="0.4000"><name>Campo</name></rtept>
+    <rtept lat="42.1006" lon="0.4767"><name>Benabarre</name></rtept>
+    <rtept lat="42.1667" lon="0.8944"><name>Tremp</name></rtept>
+    <rtept lat="41.9126" lon="1.1913"><name>Ponts</name></rtept>
+    <rtept lat="41.9794" lon="2.8214"><name>Girona</name><desc>Fin del viaje</desc></rtept>
+  </rte>
+
+</gpx>
