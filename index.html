@@ -1462,6 +1462,19 @@ document.getElementById('editorStops').addEventListener('click', e => {
 
 // Búsqueda con Photon (Komoot): a diferencia de Nominatim, encuentra bien
 // negocios, restaurantes y otros POIs por nombre, no solo direcciones.
+// Photon sí que geolocaliza el número de portal exacto (p.housenumber) para
+// muchas direcciones — el problema era que aquí se descartaba: si el lugar
+// no tiene nombre propio (una vivienda, no un comercio), se usaba solo
+// p.street y el número desaparecía sin dejar forma de elegirlo. photonLabel
+// se asegura de que el número, cuando existe, se vea siempre en algún sitio
+// (en el nombre si no hay otro, o si no en el subtítulo).
+function photonLabel(p){
+  const streetLine = p.street ? (p.housenumber ? `${p.street}, ${p.housenumber}` : p.street) : null;
+  const name = p.name || streetLine || 'Lugar';
+  const subParts = p.name ? [streetLine, p.city, p.country] : [p.city, p.country];
+  const sub = subParts.filter(Boolean).join(', ');
+  return {name, sub};
+}
 let searchDebounce = null, lastSearchFeatures = [];
 document.getElementById('editorSearch').addEventListener('input', e => {
   clearTimeout(searchDebounce);
@@ -1484,9 +1497,7 @@ document.getElementById('editorSearch').addEventListener('input', e => {
       const data = await res.json();
       lastSearchFeatures = data.features || [];
       resultsEl.innerHTML = lastSearchFeatures.map((f,i) => {
-        const p = f.properties;
-        const name = p.name || p.street || 'Lugar';
-        const sub = [p.street, p.city, p.country].filter(Boolean).join(', ');
+        const {name, sub} = photonLabel(f.properties);
         return `<div class="search-result-row">
           <div class="srr-main" data-idx="${i}"><div class="srr-name">${name}</div><div class="srr-sub">${sub}</div></div>
           <button class="srr-fav" data-fav="${i}" title="Guardar como favorito">☆</button>
@@ -1501,8 +1512,7 @@ document.getElementById('editorResults').addEventListener('click', e => {
   const favBtn = e.target.closest('[data-fav]');
   if(favBtn){
     const f = lastSearchFeatures[parseInt(favBtn.dataset.fav,10)]; if(!f) return;
-    const p = f.properties;
-    const defaultName = p.name || p.street || 'Lugar';
+    const {name: defaultName} = photonLabel(f.properties);
     const [lon, lat] = f.geometry.coordinates;
     const row = favBtn.closest('.search-result-row');
     // Formulario en línea (no prompt(): un diálogo bloqueante puede dar
@@ -1524,8 +1534,7 @@ document.getElementById('editorResults').addEventListener('click', e => {
   }
   const main = e.target.closest('[data-idx]'); if(!main) return;
   const f = lastSearchFeatures[parseInt(main.dataset.idx,10)]; if(!f) return;
-  const p = f.properties;
-  const name = p.name || p.street || 'Lugar';
+  const {name} = photonLabel(f.properties);
   const [lon, lat] = f.geometry.coordinates;
   addEditorStop(name, lat, lon);
   document.getElementById('editorSearch').value = '';
@@ -1580,7 +1589,7 @@ document.getElementById('btnAddMapPoint').addEventListener('click', async () => 
     const res = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}`);
     const data = await res.json();
     const p = data.features && data.features[0] && data.features[0].properties;
-    if(p) name = p.name || p.street || name;
+    if(p) name = photonLabel(p).name || name;
   }catch(e){}
   addEditorStop(name, lat, lon);
   showToast('✓ Punto añadido: ' + name);
