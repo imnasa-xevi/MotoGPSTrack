@@ -150,6 +150,11 @@
   .alert-card .a-sub{font-size:.75rem; color:var(--muted);}
 
   .radar-dot{width:26px; height:26px; border-radius:50%; background:#1a2530; border:2px solid var(--danger); display:flex; align-items:center; justify-content:center; font-size:.85rem;}
+  .sign-dot{width:22px; height:22px; border-radius:50%; background:#1a2530; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:.72rem;}
+  .sign-dot.stop{border-color:var(--danger);}
+  .sign-dot.give_way{border-color:var(--warn);}
+  .sign-dot.traffic_signals{border-color:var(--go);}
+  .sign-dot.crossing{border-color:var(--accent);}
 
   .overlay{position:fixed; inset:0; background:rgba(6,10,14,.75); z-index:4000; display:flex; align-items:flex-end; justify-content:center;}
   .overlay.hidden{display:none;}
@@ -267,7 +272,7 @@
   </div>
 
   <div class="alert-card radar" id="radarAlert">
-    <div class="a-icon">📷</div>
+    <div class="a-icon" id="radarIcon">📷</div>
     <div><div class="a-main" id="radarDist">—</div><div class="a-sub" id="radarSpeed">Radar fijo</div></div>
   </div>
 
@@ -446,7 +451,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v16 · 2026-08-28';
+const APP_VERSION = 'v18 · 2026-08-28';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -584,6 +589,7 @@ let routeModel = null, routedIdx = -1, routeRequestBusy = false, spokenKeys = ne
 // anunciar "Has llegado" estando lejísimos.
 const ROUTE_DRIFT_RECOMPUTE_M = 400;
 let radarPoints = [], radarMarkers = [], radarAnnounced = new Set();
+let trafficSigns = [], trafficSignMarkers = [], trafficSignsFetchedAt = null;
 let maxspeedWays = [], maxspeedFetchedAt = null;
 let odoSinceFuel = 0, lastOdoPos = null, fuelStations = [], fuelRangeKm = 220;
 const FUEL_MIN_M_FOR_RESET = 100000; // no reinicia el contador si aún llevas poca distancia
@@ -854,10 +860,14 @@ async function loadRadars(){
 // puntos de interés en cualquier app de mapas — de cerca (navegando de
 // verdad) sí interesa verlos todos.
 const RADAR_MIN_ZOOM = 9;
+const TRAFFIC_SIGN_MIN_ZOOM = 13; // stops/semáforos/cruces son mucho más densos que los radares
 function updateRadarVisibility(){
   if(!map) return;
-  const show = map.getZoom() >= RADAR_MIN_ZOOM;
-  radarMarkers.forEach(m => { m.getElement().style.display = show ? 'flex' : 'none'; });
+  const zoom = map.getZoom();
+  const showRadars = zoom >= RADAR_MIN_ZOOM;
+  radarMarkers.forEach(m => { m.getElement().style.display = showRadars ? 'flex' : 'none'; });
+  const showSigns = zoom >= TRAFFIC_SIGN_MIN_ZOOM;
+  trafficSignMarkers.forEach(m => { m.getElement().style.display = showSigns ? 'flex' : 'none'; });
 }
 function renderRadarMarkers(){
   if(!map) return;
@@ -869,12 +879,45 @@ function renderRadarMarkers(){
   });
   updateRadarVisibility();
 }
+/* ================= Señales de tráfico cercanas (stop, ceda el paso,
+   semáforos, cruces peatonales — OpenStreetMap / Overpass) =================
+   A diferencia de los radares (pocos, se piden una vez para toda la ruta),
+   stops/semáforos/cruces son muchísimo más densos: pedirlos para la ruta
+   entera saturaría Overpass y llenaría el mapa de puntos al alejar el zoom.
+   Se piden en una zona pequeña alrededor de tu posición real, igual que el
+   límite de velocidad, y se van renovando según avanzas. */
+const TRAFFIC_SIGN_ICONS = {stop:'🛑', give_way:'⚠️', traffic_signals:'🚦', crossing:'🚸'};
+const TRAFFIC_SIGN_LABELS = {stop:'Stop', give_way:'Ceda el paso', traffic_signals:'Semáforo', crossing:'Paso de peatones'};
+async function maybeLoadTrafficSigns(){
+  if(!lastPos) return;
+  if(trafficSignsFetchedAt && haversine(trafficSignsFetchedAt.lat, trafficSignsFetchedAt.lon, lastPos.lat, lastPos.lon) < 1.5) return;
+  trafficSignsFetchedAt = {lat:lastPos.lat, lon:lastPos.lon};
+  const d = 0.02; // ~2 km a estas latitudes: suficiente para ver lo que se acerca sin pedir de más
+  const bbox = `${lastPos.lat-d},${lastPos.lon-d},${lastPos.lat+d},${lastPos.lon+d}`;
+  const q = `[out:json][timeout:15];(node["highway"="stop"](${bbox});node["highway"="give_way"](${bbox});node["highway"="traffic_signals"](${bbox});node["highway"="crossing"](${bbox}););out body;`;
+  const data = await fetchOverpass('trafficSigns', q, 12000);
+  if(!data) return;
+  trafficSigns = (data.elements||[])
+    .map(e => ({id:e.id, lat:e.lat, lon:e.lon, type: e.tags && e.tags.highway}))
+    .filter(s => TRAFFIC_SIGN_ICONS[s.type]);
+  renderTrafficSignMarkers();
+}
+function renderTrafficSignMarkers(){
+  if(!map) return;
+  trafficSignMarkers.forEach(m => m.remove());
+  trafficSignMarkers = trafficSigns.map(s => {
+    const el = document.createElement('div');
+    el.className = 'sign-dot ' + s.type; el.textContent = TRAFFIC_SIGN_ICONS[s.type];
+    return new maplibregl.Marker({element: el}).setLngLat([s.lon, s.lat]).addTo(map);
+  });
+  updateRadarVisibility();
+}
 function checkRadarAlerts(){
   const alertEl = document.getElementById('radarAlert');
-  if(!radarPoints.length || !lastPos){ alertEl.style.display='none'; return; }
+  if((!radarPoints.length && !trafficSigns.length) || !lastPos){ alertEl.style.display='none'; return; }
   const ALERT_M=700, VOICE_M=500;
-  let closest=null, closestDist=Infinity;
-  radarPoints.forEach(r => {
+  let closest=null, closestDist=Infinity, closestKind=null;
+  const consider = (r, kind) => {
     const d = haversine(lastPos.lat,lastPos.lon,r.lat,r.lon)*1000;
     if(d>ALERT_M) return;
     let ahead=true;
@@ -883,13 +926,24 @@ function checkRadarAlerts(){
       const diff = Math.abs(((b-lastGpsHeading+540)%360)-180);
       ahead = diff<70;
     }
-    if(ahead && d<closestDist){ closestDist=d; closest=r; }
-  });
+    if(ahead && d<closestDist){ closestDist=d; closest=r; closestKind=kind; }
+  };
+  radarPoints.forEach(r => consider(r, 'radar'));
+  trafficSigns.forEach(s => consider(s, s.type));
   if(closest){
     alertEl.style.display='flex';
     document.getElementById('radarDist').textContent = fmtDist(closestDist);
-    document.getElementById('radarSpeed').textContent = closest.maxspeed ? `Radar fijo · límite ${closest.maxspeed} km/h` : 'Radar fijo';
-    if(!radarAnnounced.has(closest.id) && closestDist<VOICE_M){
+    if(closestKind === 'radar'){
+      document.getElementById('radarIcon').textContent = '📷';
+      document.getElementById('radarSpeed').textContent = closest.maxspeed ? `Radar fijo · límite ${closest.maxspeed} km/h` : 'Radar fijo';
+    } else {
+      document.getElementById('radarIcon').textContent = TRAFFIC_SIGN_ICONS[closestKind];
+      document.getElementById('radarSpeed').textContent = TRAFFIC_SIGN_LABELS[closestKind];
+    }
+    // Solo se avisa por voz de radares: un stop o semáforo cada pocos cientos
+    // de metros en cualquier pueblo haría que la voz no parara nunca. Verlos
+    // en el mapa y en esta tarjeta ya cumple para ir avisado sin saturar.
+    if(closestKind === 'radar' && !radarAnnounced.has(closest.id) && closestDist<VOICE_M){
       radarAnnounced.add(closest.id);
       speakIfPossible('Radar fijo próximo' + (closest.maxspeed?`, límite ${closest.maxspeed} kilómetros por hora`:''));
     }
@@ -1148,6 +1202,7 @@ function startWatch(){
     maybeRecomputeRoute().then(updateTurnBanner);
     updateTurnBanner();
     checkRadarAlerts();
+    maybeLoadTrafficSigns().then(checkRadarAlerts);
     updateFuelTracking(lastPos.lat, lastPos.lon);
     maybeLoadMaxspeed().then(updateSpeedSign);
     updateSpeedSign();
@@ -1299,7 +1354,31 @@ function initMap(){
     fitToRoute();
   });
 
-  map.on('dragstart', () => { setFollow(false); lastManualMapInteraction = Date.now(); });
+  // La vibración del motor (o un roce sin querer con el móvil montado en el
+  // manillar) puede disparar un dragstart real de MapLibre sin que hayas
+  // querido mover el mapa. Antes eso desactivaba "seguir" sin distinguir
+  // cuánto se había movido — y si la vibración seguía, cada micro-roce
+  // reiniciaba el contador de 12 s para reactivarlo, así que "seguir" podía
+  // quedarse apagado indefinidamente sin que lo tocaras aposta. Ahora, si el
+  // desplazamiento al soltar fue mínimo (jitter, no un arrastre real),
+  // "seguir" se reactiva al momento en vez de esperar.
+  const DRAG_JITTER_PX = 20;
+  let dragStartCenterPx = null;
+  map.on('dragstart', () => {
+    setFollow(false);
+    lastManualMapInteraction = Date.now();
+    dragStartCenterPx = map.project(map.getCenter());
+  });
+  map.on('dragend', () => {
+    if(!dragStartCenterPx) return;
+    const endPx = map.project(map.getCenter());
+    const movedPx = Math.hypot(endPx.x - dragStartCenterPx.x, endPx.y - dragStartCenterPx.y);
+    dragStartCenterPx = null;
+    if(movedPx < DRAG_JITTER_PX){
+      lastManualMapInteraction = 0;
+      setFollow(true);
+    }
+  });
   map.on('zoom', updateRadarVisibility);
 }
 function setMapStyle(id){
