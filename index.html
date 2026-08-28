@@ -1041,9 +1041,6 @@ function updateMeMarker(lat, lon){
     meMarker.setLngLat([lon, lat]);
   }
   if(lastGpsHeading !== null) meMarker.setRotation(lastGpsHeading);
-  if(followMode){
-    map.easeTo({center:[lon, lat], zoom: Math.max(map.getZoom(), 15.5), duration:400});
-  }
 }
 
 /* ================= Progreso por la ruta ================= */
@@ -1127,8 +1124,20 @@ function startWatch(){
 
 function applyRotation(){
   if(!map) return;
-  if(mapRotateMode && lastGpsHeading !== null) map.setBearing(lastGpsHeading);
-  else map.setBearing(0);
+  const bearing = (mapRotateMode && lastGpsHeading !== null) ? lastGpsHeading : 0;
+  // Centrar+acercar el mapa a tu posición (modo "seguir") y girarlo según la
+  // marcha se hacían con dos llamadas de cámara seguidas: easeTo() aquí
+  // mismo detrás de un setBearing() en updateMeMarker. La segunda
+  // interrumpía a la primera a medio empezar (comprobado: el zoom se
+  // quedaba clavado en el de "ver toda la ruta" en vez de acercarse) y el
+  // mapa nunca llegaba a seguir tu posición real — el punto podía quedar
+  // fuera de la vista sin que "seguir" hiciera nada. Ahora es una única
+  // transición de cámara.
+  if(followMode && lastPos){
+    map.easeTo({center:[lastPos.lon, lastPos.lat], zoom: Math.max(map.getZoom(), 15.5), bearing, duration:400});
+  } else {
+    map.setBearing(bearing);
+  }
 }
 
 /* ================= Pantalla siempre encendida ================= */
@@ -1263,6 +1272,13 @@ document.getElementById('btnEnable').addEventListener('click', () => {
   // Importante: pedir wake lock y GPS ANTES del selector de km (mismo motivo
   // que en MotoTrack: un diálogo de por medio puede romper el gesto de
   // usuario que necesitan esas APIs en iOS).
+  // La voz también necesita este mismo gesto directo: Safari/iOS bloquea en
+  // silencio speechSynthesis.speak() hasta que se ha llamado al menos una
+  // vez dentro de un clic/toque real del usuario. Como el resto de avisos
+  // por voz (giros, radares, llegada) se disparan luego desde el callback
+  // async del GPS —nunca desde un clic— sin este "desbloqueo" aquí no
+  // sonaban nunca en iPhone.
+  speakIfPossible('Navegación iniciada');
   requestWakeLock();
   startWatch();
   openKmPicker().then(km => {
