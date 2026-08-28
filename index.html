@@ -81,6 +81,7 @@
   .chip-exit{top:12px; left:12px;}
   .chip-overview{top:12px; right:12px;}
   .chip-rotate{bottom:12px; left:12px;}
+  .chip-rotate.on{background:var(--accent); color:var(--accent-ink); border:none;}
   .chip-follow{bottom:12px; right:12px; background:var(--accent); color:var(--accent-ink); border:none;}
   .chip-follow.off{background:rgba(18,24,33,.9); color:var(--text); border:1.5px solid var(--border);}
   .map-card.fullscreen .chip-exit{top:calc(12px + env(safe-area-inset-top));}
@@ -1072,6 +1073,12 @@ function advanceIfClose(){
 function speakIfPossible(text){
   if(!('speechSynthesis' in window)) return;
   try{
+    // Safari/iOS puede dejar la cola de voz "atascada" (p. ej. tras
+    // bloquear la pantalla o cambiar de app un momento): sin cancelar lo
+    // pendiente, avisos nuevos se quedan encolados en silencio. cancel()
+    // vacía la cola y resume() por si el motor había quedado en pausa.
+    speechSynthesis.cancel();
+    speechSynthesis.resume();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'es-ES';
     speechSynthesis.speak(u);
@@ -1098,9 +1105,22 @@ function startWatch(){
   document.getElementById('permCard').style.display = 'none';
   document.getElementById('sessionBtns').style.display = 'flex';
   watchId = navigator.geolocation.watchPosition(pos => {
-    lastPos = {lat:pos.coords.latitude, lon:pos.coords.longitude};
+    const newPos = {lat:pos.coords.latitude, lon:pos.coords.longitude};
     const h = pos.coords.heading;
-    if(h !== null && h !== undefined && !isNaN(h)) lastGpsHeading = h;
+    if(h !== null && h !== undefined && !isNaN(h)){
+      lastGpsHeading = h;
+    } else if(lastPos){
+      // Bastantes móviles no informan heading nunca (localización por red en
+      // vez de GPS puro, sensor sin calibrar...): sin este cálculo de
+      // repuesto a partir del desplazamiento real entre dos posiciones,
+      // "girar mapa según la marcha" no tenía ningún efecto visible y el
+      // botón parecía no hacer nada. Solo se recalcula si te has movido lo
+      // bastante para que el rumbo sea fiable — parado, dos fixes casi
+      // idénticos dan un rumbo errático.
+      const movedM = haversine(lastPos.lat, lastPos.lon, newPos.lat, newPos.lon) * 1000;
+      if(movedM > 8) lastGpsHeading = bearing(lastPos.lat, lastPos.lon, newPos.lat, newPos.lon);
+    }
+    lastPos = newPos;
     document.getElementById('gpsDot').classList.add('live');
     advanceIfClose();
     maybeResumeFollow();
@@ -1162,6 +1182,27 @@ function maybeEnsureWakeLock(){
 }
 document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') ensureWakeLock(); });
 
+// El estilo "dark" de OpenFreeMap, tal cual, apenas distingue calles de
+// manzanas a zoom de calle: p. ej. las calles normales (highway_minor) son
+// #181818 sobre un fondo de #0d0d0d y edificios rgb(10,10,10) — todo casi
+// negro puro, solo se leen los nombres de las calles. Se aclaran las capas
+// de carretera (y algo los edificios) para que el trazado de calles se vea
+// de un vistazo circulando, manteniendo el tema oscuro.
+function boostRoadContrast(){
+  const overrides = [
+    ['highway_minor', 'line-color', '#4a4a4a'],
+    ['highway_major_casing', 'line-color', 'rgba(95,95,95,0.9)'],
+    ['highway_major_inner', 'line-color', 'hsl(0,0%,22%)'],
+    ['highway_major_subtle', 'line-color', '#3d3d3d'],
+    ['highway_motorway_subtle', 'line-color', '#3d3d3d'],
+    ['highway_path', 'line-color', 'rgb(45,45,48)'],
+    ['building', 'fill-color', 'rgb(24,24,24)'],
+  ];
+  overrides.forEach(([id, prop, val]) => {
+    if(!map.getLayer(id)) return;
+    try{ map.setPaintProperty(id, prop, val); }catch(e){}
+  });
+}
 /* ================= Mapa (MapLibre GL, sin API key: OpenFreeMap + terreno AWS Terrarium) ================= */
 function initMap(){
   if(map) return;
@@ -1174,6 +1215,7 @@ function initMap(){
   });
 
   map.on('load', () => {
+    boostRoadContrast();
     map.addSource('terrain-dem', {
       type: 'raster-dem',
       tiles: ['https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png'],
@@ -1313,7 +1355,12 @@ document.getElementById('btnOverview').addEventListener('click', () => { setFoll
 document.getElementById('btnFollow').addEventListener('click', () => setFollow(!followMode));
 document.getElementById('btnRotate').addEventListener('click', () => {
   mapRotateMode = !mapRotateMode;
-  document.getElementById('btnRotate').style.color = mapRotateMode ? 'var(--go)' : '';
+  // Antes solo cambiaba el color del icono (sutil, fácil de no notar) y si
+  // no había rumbo GPS todavía el mapa ni siquiera giraba: parecía que el
+  // botón "no hacía nada". Mismo patrón que el botón "seguir" (fondo
+  // relleno = activo) para que se note el cambio de estado siempre, aunque
+  // el giro real del mapa tarde en verse por falta de rumbo.
+  document.getElementById('btnRotate').classList.toggle('on', mapRotateMode);
   if(mapRotateMode) setFollow(true);
   applyRotation();
 });
