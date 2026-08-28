@@ -46,7 +46,7 @@
     padding:16px; width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
   }
   .btn.secondary{background:var(--card); color:var(--text); border:1px solid var(--border);}
-  #btnVoice.off, .chip-voice.off{opacity:.55;}
+  #btnVoice.off{opacity:.55;}
   .app-version{text-align:center; font-size:.68rem; color:var(--muted2); margin-top:14px; padding-bottom:6px;}
   .btn-update{display:block; margin:8px auto 0; background:transparent; border:1px solid var(--border); color:var(--muted); font-size:.72rem; padding:8px 16px; border-radius:12px;}
   .btn-update:active{background:var(--card);}
@@ -93,13 +93,18 @@
   .map-card.fullscreen .chip-rotate{bottom:calc(12px + env(safe-area-inset-bottom));}
   .map-card.fullscreen .chip-follow{bottom:calc(12px + env(safe-area-inset-bottom));}
 
-  /* Control de voz y reloj solo en pantalla completa: en modo normal ya
-     existen btnVoice (topbar) y la hora del propio móvil a la vista, así que
-     aquí solo hacen falta cuando el mapa tapa el resto de la interfaz.
-     Van en el centro de los bordes izq/dcha, la única zona libre entre las
-     4 esquinas (chips) y el centro arriba/abajo (mode-toggle/speed-sign). */
-  .chip-voice{display:none; top:50%; right:12px; transform:translateY(-50%);}
-  .map-card.fullscreen .chip-voice{display:flex;}
+  /* Control de voz, estilo de mapa y reloj solo en pantalla completa: en modo
+     normal ya existen btnVoice/btnMapStyle (topbar) y la hora del propio
+     móvil a la vista, así que aquí solo hacen falta cuando el mapa tapa el
+     resto de la interfaz. Van en el centro de los bordes izq/dcha, la única
+     zona libre entre las 4 esquinas (chips) y el centro arriba/abajo
+     (mode-toggle/speed-sign). chip-stack los agrupa en columna para no tener
+     que calcular a mano el offset de cada uno según el tamaño de chip
+     (56px en modo normal, 64px en fullscreen).  */
+  .chip-stack{display:none; position:absolute; top:50%; right:12px; transform:translateY(-50%); flex-direction:column; gap:12px; z-index:5;}
+  .map-card.fullscreen .chip-stack{display:flex;}
+  .chip-stack .map-chip{position:static;}
+  .chip-stack .map-chip.off{opacity:.55;}
   .fs-clock{
     display:none; position:absolute; top:50%; left:12px; transform:translateY(-50%);
     background:rgba(18,24,33,.88); border:1.5px solid var(--border); border-radius:14px;
@@ -350,7 +355,10 @@
     <button class="map-chip chip-overview" id="btnOverview" title="Ver toda la ruta">🗺️</button>
     <button class="map-chip chip-rotate" id="btnRotate" title="Girar mapa según la marcha">🧭</button>
     <button class="map-chip chip-follow" id="btnFollow" title="Seguir mi posición">🎯</button>
-    <button class="map-chip chip-voice" id="btnVoiceFs" title="Voz de los avisos">🔊</button>
+    <div class="chip-stack" id="chipStackRight">
+      <button class="map-chip" id="btnVoiceFs" title="Voz de los avisos">🔊</button>
+      <button class="map-chip" id="btnMapStyleFs" title="Estilo del mapa">🌙</button>
+    </div>
     <div class="fs-clock" id="fsClock">--:--</div>
     <div class="speed-sign" id="speedSign"><span id="speedSignNum">—</span></div>
     <div class="fs-stack" id="fsStack">
@@ -530,7 +538,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v22 · 2026-08-28';
+const APP_VERSION = 'v23 · 2026-08-28';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -1432,21 +1440,59 @@ function maybeEnsureWakeLock(){
 }
 document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') ensureWakeLock(); });
 
-// El estilo "dark" de OpenFreeMap, tal cual, apenas distingue calles de
-// manzanas a zoom de calle: p. ej. las calles normales (highway_minor) son
-// #181818 sobre un fondo de #0d0d0d y edificios rgb(10,10,10) — todo casi
-// negro puro, solo se leen los nombres de las calles. Se aclaran las capas
-// de carretera (y algo los edificios) para que el trazado de calles se vea
-// de un vistazo circulando, manteniendo el tema oscuro.
-function boostRoadContrast(){
+// El estilo "dark" de OpenFreeMap, tal cual, es prácticamente monocromo: el
+// fondo es rgb(12,12,12), el agua rgb(27,27,29) y los edificios rgb(10,10,10)
+// — casi negro puro y sin apenas diferencia entre agua, tierra y calles, solo
+// se leen los nombres. Google Maps y Waze usan de noche un azul marino bien
+// diferenciado (agua más oscura, tierra algo más clara, carreteras en gris
+// azulado legible) en vez de negro plano, así que en vez de aclarar solo las
+// calles (como hacía boostRoadContrast, la función que sustituye esta) se
+// repinta la paleta completa del estilo con esa referencia.
+function applyNightPalette(){
   const overrides = [
-    ['highway_minor', 'line-color', '#4a4a4a'],
-    ['highway_major_casing', 'line-color', 'rgba(95,95,95,0.9)'],
-    ['highway_major_inner', 'line-color', 'hsl(0,0%,22%)'],
-    ['highway_major_subtle', 'line-color', '#3d3d3d'],
-    ['highway_motorway_subtle', 'line-color', '#3d3d3d'],
-    ['highway_path', 'line-color', 'rgb(45,45,48)'],
-    ['building', 'fill-color', 'rgb(24,24,24)'],
+    ['background', 'background-color', '#1a2233'],
+    ['water', 'fill-color', '#17263c'],
+    ['waterway', 'line-color', '#1f3350'],
+    ['landcover_ice_shelf', 'fill-color', '#1a2233'],
+    ['landcover_glacier', 'fill-color', '#1a2233'],
+    ['landuse_residential', 'fill-color', '#212a3d'],
+    ['landcover_wood', 'fill-color', '#243830'],
+    ['landuse_park', 'fill-color', '#243830'],
+    ['building', 'fill-color', '#2a3446'],
+    ['building', 'fill-outline-color', '#3a4558'],
+    ['aeroway-taxiway', 'line-color', '#3a4558'],
+    ['aeroway-runway-casing', 'line-color', 'rgba(90,100,120,0.8)'],
+    ['aeroway-area', 'fill-color', '#182030'],
+    ['aeroway-runway', 'line-color', '#2a3446'],
+    ['road_area_pier', 'fill-color', '#17263c'],
+    ['road_pier', 'line-color', '#17263c'],
+    ['highway_path', 'line-color', '#33455c'],
+    ['highway_minor', 'line-color', '#3d4c63'],
+    ['highway_major_casing', 'line-color', 'rgba(15,20,30,0.85)'],
+    ['highway_major_inner', 'line-color', '#57697f'],
+    ['highway_major_subtle', 'line-color', '#48586e'],
+    ['highway_motorway_casing', 'line-color', 'rgba(15,20,30,0.85)'],
+    // El original interpola a '#000' (negro puro) al pasar de zoom 5.8 a 6,
+    // así que las autovías/autopistas se volvían invisibles justo al
+    // acercarte: se sustituye por el tono cálido tipo Google Maps.
+    ['highway_motorway_inner', 'line-color', ['interpolate', ['linear'], ['zoom'], 5.8, 'hsla(35,55%,68%,0.55)', 6, '#8a7454']],
+    ['highway_motorway_subtle', 'line-color', '#6b5a42'],
+    ['railway_transit', 'line-color', '#4a5a70'],
+    ['railway_transit_dashline', 'line-color', '#17263c'],
+    ['railway_minor', 'line-color', '#4a5a70'],
+    ['railway_minor_dashline', 'line-color', '#17263c'],
+    ['railway', 'line-color', '#4a5a70'],
+    ['railway_dashline', 'line-color', '#17263c'],
+    ['highway_name_other', 'text-color', '#9fb0c5'],
+    ['highway_name_other', 'text-halo-color', 'rgba(10,15,25,0.85)'],
+    ['highway_name_motorway', 'text-color', '#d8bd8f'],
+    ['boundary_state', 'line-color', '#556277'],
+    ['boundary_country_z0-4', 'line-color', '#66748c'],
+    ['boundary_country_z5-', 'line-color', '#66748c'],
+    ['water_name', 'text-color', '#5f89b0'],
+    ['water_name', 'text-halo-color', 'hsl(210,35%,14%)'],
+    ...['place_other','place_suburb','place_village','place_town','place_city','place_city_large','place_state','place_country_other','place_country_minor','place_country_major']
+      .flatMap(id => [[id, 'text-color', '#8fa0b5'], [id, 'text-halo-color', 'rgba(10,15,25,0.8)']]),
   ];
   overrides.forEach(([id, prop, val]) => {
     if(!map.getLayer(id)) return;
@@ -1508,7 +1554,7 @@ function setupMapLayers(){
       paint:{'line-color':'#34d399', 'line-width':5, 'line-opacity':.8, 'line-dasharray':[2,2]}
     });
   }
-  if(mapStyleId === 'dark') boostRoadContrast();
+  if(mapStyleId === 'dark') applyNightPalette();
   renderRouteLayer();
   if(is3D) map.setTerrain({source:'terrain-dem', exaggeration:1.4});
 }
@@ -1577,21 +1623,31 @@ function initMap(){
     lastManualMapInteraction = Date.now();
   });
 }
+// btnMapStyle (topbar) y btnMapStyleFs (chip solo visible en pantalla
+// completa, igual que btnVoiceFs) comparten estado sin compartir id.
 function setMapStyle(id){
   if(!MAP_STYLES[id] || id === mapStyleId || !map) return;
   mapStyleId = id;
   localStorage.setItem('motogpstrack_mapstyle', id);
-  document.getElementById('btnMapStyle').textContent = MAP_STYLES[id].icon;
+  ['btnMapStyle','btnMapStyleFs'].forEach(elId => {
+    const btn = document.getElementById(elId);
+    if(btn) btn.textContent = MAP_STYLES[id].icon;
+  });
   map.setStyle(MAP_STYLES[id].url);
   // 'style.load' no llega a dispararse en esta versión de MapLibre tras un
   // setStyle() (comprobado). 'idle' sí lo hace de forma fiable, una vez el
   // nuevo estilo ha terminado de asentarse (tiles/sprite cargados).
   map.once('idle', setupMapLayers);
 }
-document.getElementById('btnMapStyle').addEventListener('click', () => {
+function toggleMapStyle(){
   setMapStyle(mapStyleId === 'dark' ? 'standard' : 'dark');
+}
+document.getElementById('btnMapStyle').addEventListener('click', toggleMapStyle);
+document.getElementById('btnMapStyleFs').addEventListener('click', toggleMapStyle);
+['btnMapStyle','btnMapStyleFs'].forEach(elId => {
+  const btn = document.getElementById(elId);
+  if(btn) btn.textContent = MAP_STYLES[mapStyleId].icon;
 });
-document.getElementById('btnMapStyle').textContent = MAP_STYLES[mapStyleId].icon;
 
 function fitToRoute(){
   if(!map) return;
