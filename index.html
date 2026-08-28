@@ -538,7 +538,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v23 · 2026-08-28';
+const APP_VERSION = 'v24 · 2026-08-28';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -1394,6 +1394,7 @@ function startWatch(){
     maybeEnsureWakeLock();
     maybeSharePosition();
     maybeLoadFromMeGeom();
+    updateAutoMapStyle();
   }, err => {
     document.getElementById('gpsDot').classList.remove('live');
     showToast('Sin señal GPS (' + err.message + ')');
@@ -1507,7 +1508,50 @@ const MAP_STYLES = {
   dark: {url:'https://tiles.openfreemap.org/styles/dark', icon:'🌙'},
   standard: {url:'https://tiles.openfreemap.org/styles/liberty', icon:'🗺️'},
 };
-let mapStyleId = localStorage.getItem('motogpstrack_mapstyle') === 'standard' ? 'standard' : 'dark';
+// "Automático" (por defecto, como Google Maps/Waze): oscuro de noche,
+// estándar de día, según la salida/puesta de sol real en tu posición — no
+// según la hora del reloj, que en verano al norte de Europa engañaría (a las
+// 21h todavía hay luz). En cuanto tocas el botón de estilo una vez se guarda
+// tu elección manual y el automático se desactiva para siempre (hasta que
+// borres datos de la app), igual que con la voz.
+let mapStyleAuto = localStorage.getItem('motogpstrack_mapstyle') === null;
+let mapStyleId = mapStyleAuto ? 'dark' : (localStorage.getItem('motogpstrack_mapstyle') === 'standard' ? 'standard' : 'dark');
+
+// Algoritmo NOAA simplificado de salida/puesta de sol (precisión de minutos,
+// de sobra para decidir día/noche). Devuelve minutos UTC desde medianoche, o
+// null si el sol no sale/se pone ese día (círculo polar) — en ese caso no se
+// cambia de estilo automáticamente, mejor que adivinar mal.
+function sunTimesUTC(date, lat, lon){
+  const rad = Math.PI/180;
+  const dayOfYear = Math.floor((date - Date.UTC(date.getUTCFullYear(),0,0)) / 86400000);
+  const fy = 2*Math.PI/365 * (dayOfYear - 1);
+  const eqTime = 229.18*(0.000075 + 0.001868*Math.cos(fy) - 0.032077*Math.sin(fy) - 0.014615*Math.cos(2*fy) - 0.040849*Math.sin(2*fy));
+  const decl = 0.006918 - 0.399912*Math.cos(fy) + 0.070257*Math.sin(fy) - 0.006758*Math.cos(2*fy) + 0.000907*Math.sin(2*fy) - 0.002697*Math.cos(3*fy) + 0.00148*Math.sin(3*fy);
+  const zenith = 90.833*rad; // incluye la refracción atmosférica estándar del cálculo NOAA
+  const cosH = (Math.cos(zenith) - Math.sin(lat*rad)*Math.sin(decl)) / (Math.cos(lat*rad)*Math.cos(decl));
+  if(cosH > 1 || cosH < -1) return null;
+  const haDeg = Math.acos(cosH) / rad;
+  return {sunriseMin: 720 - 4*(lon + haDeg) - eqTime, sunsetMin: 720 - 4*(lon - haDeg) - eqTime};
+}
+function isNightAt(lat, lon, date){
+  const t = sunTimesUTC(date, lat, lon);
+  if(!t) return null;
+  const nowMin = date.getUTCHours()*60 + date.getUTCMinutes();
+  return nowMin < t.sunriseMin || nowMin > t.sunsetMin;
+}
+// Sin posición GPS todavía se usa un punto aproximado (centro de España) solo
+// para no arrancar siempre en oscuro por defecto; en cuanto hay una posición
+// real (arranca la navegación) se recalcula con tus coordenadas de verdad.
+function updateAutoMapStyle(){
+  if(!mapStyleAuto) return;
+  const lat = lastPos ? lastPos.lat : 40.4, lon = lastPos ? lastPos.lon : -3.7;
+  const night = isNightAt(lat, lon, new Date());
+  if(night === null) return;
+  const wanted = night ? 'dark' : 'standard';
+  if(wanted !== mapStyleId) setMapStyle(wanted);
+}
+updateAutoMapStyle();
+setInterval(updateAutoMapStyle, 10*60*1000);
 
 // Sources/capas propias (no las trae el estilo): hace falta volver a
 // añadirlas cada vez que cambia el estilo del mapa, porque setStyle()
@@ -1625,22 +1669,33 @@ function initMap(){
 }
 // btnMapStyle (topbar) y btnMapStyleFs (chip solo visible en pantalla
 // completa, igual que btnVoiceFs) comparten estado sin compartir id.
+// setMapStyle() solo aplica el estilo (la usa también el modo automático,
+// antes de que exista `map`: updateAutoMapStyle() se llama nada más
+// declarar mapStyleId, para que initMap() ya arranque con el estilo
+// correcto en vez de crear el mapa oscuro y cambiarlo enseguida a claro).
+// chooseMapStyle() es la que usan los botones: además guarda tu elección y
+// apaga el automático, igual que con la voz.
 function setMapStyle(id){
-  if(!MAP_STYLES[id] || id === mapStyleId || !map) return;
+  if(!MAP_STYLES[id] || id === mapStyleId) return;
   mapStyleId = id;
-  localStorage.setItem('motogpstrack_mapstyle', id);
   ['btnMapStyle','btnMapStyleFs'].forEach(elId => {
     const btn = document.getElementById(elId);
     if(btn) btn.textContent = MAP_STYLES[id].icon;
   });
+  if(!map) return;
   map.setStyle(MAP_STYLES[id].url);
   // 'style.load' no llega a dispararse en esta versión de MapLibre tras un
   // setStyle() (comprobado). 'idle' sí lo hace de forma fiable, una vez el
   // nuevo estilo ha terminado de asentarse (tiles/sprite cargados).
   map.once('idle', setupMapLayers);
 }
+function chooseMapStyle(id){
+  mapStyleAuto = false;
+  localStorage.setItem('motogpstrack_mapstyle', id);
+  setMapStyle(id);
+}
 function toggleMapStyle(){
-  setMapStyle(mapStyleId === 'dark' ? 'standard' : 'dark');
+  chooseMapStyle(mapStyleId === 'dark' ? 'standard' : 'dark');
 }
 document.getElementById('btnMapStyle').addEventListener('click', toggleMapStyle);
 document.getElementById('btnMapStyleFs').addEventListener('click', toggleMapStyle);
