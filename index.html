@@ -249,6 +249,7 @@
       </div>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
+      <button class="btn secondary" id="btnMapStyle" style="width:44px; padding:10px; font-size:1.05rem; flex:none;" title="Estilo del mapa">🌙</button>
       <button class="btn secondary" id="btnVoice" style="width:44px; padding:10px; font-size:1.05rem; flex:none;" title="Voz de los avisos">🔊</button>
       <button class="btn secondary" id="btnOpenRoutes" style="width:auto; padding:10px 16px; font-size:.85rem;">🗂️ Rutas</button>
     </div>
@@ -354,6 +355,8 @@
     <div class="sheet-head"><h3>Tus rutas</h3><button class="sheet-close" id="closeRoutes">✕</button></div>
     <div id="routesList"></div>
     <button class="btn secondary" id="btnNewRoute" style="margin-top:4px;">+ Nueva ruta</button>
+    <button class="btn secondary" id="btnImportRoute" style="margin-top:8px;">📂 Importar ruta (GPX)</button>
+    <input type="file" id="importGpxInput" accept=".gpx,application/gpx+xml" style="display:none;">
   </div>
 </div>
 
@@ -1219,18 +1222,22 @@ function boostRoadContrast(){
   });
 }
 /* ================= Mapa (MapLibre GL, sin API key: OpenFreeMap + terreno AWS Terrarium) ================= */
-function initMap(){
-  if(map) return;
-  map = new maplibregl.Map({
-    container: 'map',
-    style: 'https://tiles.openfreemap.org/styles/dark',
-    center: [ROUTE[0].lon, ROUTE[0].lat],
-    zoom: 6.5,
-    attributionControl: {compact:true}
-  });
+// "Oscuro" combina con el resto de la app; "Estándar" es el estilo Liberty
+// de OpenFreeMap (colores por tipo de vía, parques en verde, agua en azul),
+// más parecido a un mapa de siempre para quien lo prefiera así.
+const MAP_STYLES = {
+  dark: {url:'https://tiles.openfreemap.org/styles/dark', icon:'🌙'},
+  standard: {url:'https://tiles.openfreemap.org/styles/liberty', icon:'🗺️'},
+};
+let mapStyleId = localStorage.getItem('motogpstrack_mapstyle') === 'standard' ? 'standard' : 'dark';
 
-  map.on('load', () => {
-    boostRoadContrast();
+// Sources/capas propias (no las trae el estilo): hace falta volver a
+// añadirlas cada vez que cambia el estilo del mapa, porque setStyle()
+// sustituye el estilo entero y las borra. Los marcadores (paradas, mi
+// posición, radares) NO se ven afectados: son elementos DOM aparte, no
+// forman parte del estilo.
+function setupMapLayers(){
+  if(!map.getSource('terrain-dem')){
     map.addSource('terrain-dem', {
       type: 'raster-dem',
       tiles: ['https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png'],
@@ -1238,6 +1245,8 @@ function initMap(){
       encoding: 'terrarium',
       maxzoom: 15
     });
+  }
+  if(!map.getSource('route')){
     map.addSource('route', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({
       id:'route-line', type:'line', source:'route',
@@ -1248,22 +1257,42 @@ function initMap(){
         'line-opacity':['match', ['get','status'], 'done', .7, 'current', .95, .8]
       }
     });
+  }
+  if(!map.getSource('saved-track')){
     map.addSource('saved-track', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({
       id:'saved-track-line', type:'line', source:'saved-track',
       layout:{'line-join':'round','line-cap':'round'},
       paint:{'line-color':'#a855f7', 'line-width':4, 'line-opacity':.85}
     });
-    // Línea discontinua provisional para rutas de un solo destino, mientras
-    // se calcula la carretera real desde tu posición hasta él.
+  }
+  // Línea discontinua provisional para rutas de un solo destino, mientras
+  // se calcula la carretera real desde tu posición hasta él.
+  if(!map.getSource('single-dest-pending')){
     map.addSource('single-dest-pending', {type:'geojson', data:{type:'FeatureCollection', features:[]}});
     map.addLayer({
       id:'single-dest-pending-line', type:'line', source:'single-dest-pending',
       layout:{'line-join':'round','line-cap':'round'},
       paint:{'line-color':'#34d399', 'line-width':5, 'line-opacity':.8, 'line-dasharray':[2,2]}
     });
+  }
+  if(mapStyleId === 'dark') boostRoadContrast();
+  renderRouteLayer();
+  if(is3D) map.setTerrain({source:'terrain-dem', exaggeration:1.4});
+}
+function initMap(){
+  if(map) return;
+  map = new maplibregl.Map({
+    container: 'map',
+    style: MAP_STYLES[mapStyleId].url,
+    center: [ROUTE[0].lon, ROUTE[0].lat],
+    zoom: 6.5,
+    attributionControl: {compact:true}
+  });
+
+  map.on('load', () => {
+    setupMapLayers();
     renderWpMarkers();
-    renderRouteLayer();
     loadFullRouteGeometry();
     loadRadars();
     loadFuelStations();
@@ -1273,6 +1302,21 @@ function initMap(){
   map.on('dragstart', () => { setFollow(false); lastManualMapInteraction = Date.now(); });
   map.on('zoom', updateRadarVisibility);
 }
+function setMapStyle(id){
+  if(!MAP_STYLES[id] || id === mapStyleId || !map) return;
+  mapStyleId = id;
+  localStorage.setItem('motogpstrack_mapstyle', id);
+  document.getElementById('btnMapStyle').textContent = MAP_STYLES[id].icon;
+  map.setStyle(MAP_STYLES[id].url);
+  // 'style.load' no llega a dispararse en esta versión de MapLibre tras un
+  // setStyle() (comprobado). 'idle' sí lo hace de forma fiable, una vez el
+  // nuevo estilo ha terminado de asentarse (tiles/sprite cargados).
+  map.once('idle', setupMapLayers);
+}
+document.getElementById('btnMapStyle').addEventListener('click', () => {
+  setMapStyle(mapStyleId === 'dark' ? 'standard' : 'dark');
+});
+document.getElementById('btnMapStyle').textContent = MAP_STYLES[mapStyleId].icon;
 
 function fitToRoute(){
   if(!map) return;
@@ -1464,6 +1508,83 @@ document.getElementById('btnVoice').addEventListener('click', () => {
 });
 updateVoiceBtn();
 document.getElementById('btnNewRoute').addEventListener('click', () => openEditor(null));
+
+/* ================= Importar ruta desde GPX ================= */
+// Soporta los tres formatos habituales: rutas <rte>/<rtept> (lo que exportan
+// la mayoría de planificadores, incluida esta misma app), waypoints sueltos
+// <wpt> (algunos exportan así en vez de <rte>) y, como último recurso, un
+// track grabado <trkpt> (miles de puntos: se simplifica a ~40, porque como
+// lista de "paradas" para navegar no tiene sentido usarlo entero).
+function parseGpxWaypoints(xmlText){
+  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if(doc.querySelector('parsererror')) throw new Error('GPX inválido');
+  const pointFrom = (pt, fallbackIdx) => {
+    const lat = parseFloat(pt.getAttribute('lat')), lon = parseFloat(pt.getAttribute('lon'));
+    if(isNaN(lat) || isNaN(lon)) return null;
+    const nameEl = pt.querySelector('name');
+    const name = (nameEl && nameEl.textContent.trim()) || ('Punto ' + fallbackIdx);
+    return {name, lat, lon};
+  };
+  let waypoints = [];
+  const rtes = doc.querySelectorAll('rte');
+  if(rtes.length){
+    rtes.forEach(rte => {
+      rte.querySelectorAll('rtept').forEach(pt => {
+        const wp = pointFrom(pt, waypoints.length + 1);
+        if(wp) waypoints.push(wp);
+      });
+    });
+  } else {
+    doc.querySelectorAll('wpt').forEach(pt => {
+      const wp = pointFrom(pt, waypoints.length + 1);
+      if(wp) waypoints.push(wp);
+    });
+  }
+  if(!waypoints.length){
+    const trkpts = Array.from(doc.querySelectorAll('trkpt'));
+    if(trkpts.length){
+      const step = Math.max(1, Math.floor(trkpts.length / 40));
+      for(let i=0; i<trkpts.length; i+=step){
+        const wp = pointFrom(trkpts[i], waypoints.length + 1);
+        if(wp) waypoints.push(wp);
+      }
+      const lastWp = pointFrom(trkpts[trkpts.length-1], waypoints.length + 1);
+      const prev = waypoints[waypoints.length-1];
+      if(lastWp && (!prev || prev.lat !== lastWp.lat || prev.lon !== lastWp.lon)) waypoints.push(lastWp);
+    }
+  }
+  // El punto final de una etapa suele repetirse como inicio de la siguiente
+  // (varias <rte> seguidas, como en nuestros propios GPX de varios días):
+  // se fusionan duplicados exactos consecutivos.
+  return waypoints.filter((wp, i) => {
+    const prev = waypoints[i-1];
+    return !(prev && Math.abs(prev.lat-wp.lat)<1e-6 && Math.abs(prev.lon-wp.lon)<1e-6);
+  });
+}
+document.getElementById('btnImportRoute').addEventListener('click', () => {
+  document.getElementById('importGpxInput').click();
+});
+document.getElementById('importGpxInput').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = ''; // permite volver a importar el mismo fichero si hace falta
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const waypoints = parseGpxWaypoints(text);
+    if(!waypoints.length){ showToast('No se han encontrado puntos en ese GPX'); return; }
+    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    const metaName = doc.querySelector('metadata > name');
+    const name = (metaName && metaName.textContent.trim()) || file.name.replace(/\.gpx$/i, '') || 'Ruta importada';
+    const id = 'route-' + Date.now();
+    store.routes.push({id, name, waypoints});
+    saveStore();
+    switchRoute(id);
+    closeRoutesSheet();
+    showToast(`✓ Ruta importada: ${name} (${waypoints.length} puntos)`);
+  }catch(err){
+    showToast('No se pudo leer el GPX: revisa que sea un fichero válido');
+  }
+});
 
 /* ================= Editor de rutas: buscador (Photon) + favoritos ================= */
 let editingRouteId = null, editorStops = [];
