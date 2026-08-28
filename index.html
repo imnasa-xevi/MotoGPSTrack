@@ -46,6 +46,8 @@
     padding:16px; width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
   }
   .btn.secondary{background:var(--card); color:var(--text); border:1px solid var(--border);}
+  #btnVoice.off{opacity:.55;}
+  .app-version{text-align:center; font-size:.68rem; color:var(--muted2); margin-top:14px; padding-bottom:6px;}
   .btn.danger{background:transparent; color:var(--danger); border:1.5px solid var(--danger);}
   .btn:active{filter:brightness(.9);}
 
@@ -246,7 +248,10 @@
         <div class="sub" id="routeSub">Cargando ruta…</div>
       </div>
     </div>
-    <button class="btn secondary" id="btnOpenRoutes" style="width:auto; padding:10px 16px; font-size:.85rem;">🗂️ Rutas</button>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button class="btn secondary" id="btnVoice" style="width:44px; padding:10px; font-size:1.05rem; flex:none;" title="Voz de los avisos">🔊</button>
+      <button class="btn secondary" id="btnOpenRoutes" style="width:auto; padding:10px 16px; font-size:.85rem;">🗂️ Rutas</button>
+    </div>
   </div>
 
   <div class="perm-card" id="permCard">
@@ -338,6 +343,8 @@
       <button class="rr-btn" id="btnEditProfile" title="Editar perfil">✏️</button>
     </div>
   </div>
+
+  <div class="app-version" id="appVersion"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -431,6 +438,13 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
+// Se muestra al final de la pantalla para poder comprobar a simple vista si
+// el móvil tiene la última versión cargada (el service worker cachea
+// agresivamente — ver sw.js — y a veces no se entera de una actualización
+// hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
+// cambio que se despliegue.
+const APP_VERSION = 'v15 · 2026-08-28';
+
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
    mismos datos mientras se construye esta. Más adelante esto se sustituye
@@ -553,6 +567,7 @@ let map = null, lastPos = null, watchId = null, currentIdx = 0, followMode = tru
 let lastManualMapInteraction = 0; // para reactivar "seguir" solo si el usuario no ha vuelto a tocar el mapa
 let is3D = false, mapRotateMode = false, lastGpsHeading = null;
 let fullscreenNav = false, wakeLock = null, navPaused = false;
+let voiceEnabled = localStorage.getItem('motogpstrack_voice') !== 'off';
 let wpMarkers = [], meMarker = null;
 let fullRouteGeoms = new Array(ROUTE.length - 1).fill(null);
 let fromMeGeom = null, fromMeGeomLoading = false; // el tramo desde tu posición real hasta el primer punto de la ruta
@@ -1071,7 +1086,7 @@ function advanceIfClose(){
   }
 }
 function speakIfPossible(text){
-  if(!('speechSynthesis' in window)) return;
+  if(!voiceEnabled || !('speechSynthesis' in window)) return;
   try{
     // Safari/iOS puede dejar la cola de voz "atascada" (p. ej. tras
     // bloquear la pantalla o cambiar de app un momento): sin cancelar lo
@@ -1433,6 +1448,21 @@ document.getElementById('routesList').addEventListener('click', e => {
 });
 document.getElementById('closeRoutes').addEventListener('click', closeRoutesSheet);
 document.getElementById('btnOpenRoutes').addEventListener('click', openRoutesSheet);
+function updateVoiceBtn(){
+  const btn = document.getElementById('btnVoice');
+  btn.textContent = voiceEnabled ? '🔊' : '🔇';
+  btn.classList.toggle('off', !voiceEnabled);
+}
+document.getElementById('btnVoice').addEventListener('click', () => {
+  voiceEnabled = !voiceEnabled;
+  localStorage.setItem('motogpstrack_voice', voiceEnabled ? 'on' : 'off');
+  updateVoiceBtn();
+  // Clic directo del usuario: aprovechamos para desbloquear speechSynthesis
+  // en Safari/iOS igual que "Activar ubicación", por si se activa la voz
+  // aquí antes de arrancar la navegación.
+  if(voiceEnabled) speakIfPossible('Voz activada');
+});
+updateVoiceBtn();
 document.getElementById('btnNewRoute').addEventListener('click', () => openEditor(null));
 
 /* ================= Editor de rutas: buscador (Photon) + favoritos ================= */
@@ -2086,6 +2116,7 @@ async function toggleShareLocation(){
 }
 document.getElementById('btnShareLocation').addEventListener('click', toggleShareLocation);
 
+document.getElementById('appVersion').textContent = 'MotoGPSTrack ' + APP_VERSION;
 loadProfile();
 updateProfileChip();
 refreshRouteHeader();
