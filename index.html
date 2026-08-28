@@ -46,8 +46,10 @@
     padding:16px; width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
   }
   .btn.secondary{background:var(--card); color:var(--text); border:1px solid var(--border);}
-  #btnVoice.off{opacity:.55;}
+  #btnVoice.off, .chip-voice.off{opacity:.55;}
   .app-version{text-align:center; font-size:.68rem; color:var(--muted2); margin-top:14px; padding-bottom:6px;}
+  .btn-update{display:block; margin:8px auto 0; background:transparent; border:1px solid var(--border); color:var(--muted); font-size:.72rem; padding:8px 16px; border-radius:12px;}
+  .btn-update:active{background:var(--card);}
   .btn.danger{background:transparent; color:var(--danger); border:1.5px solid var(--danger);}
   .btn:active{filter:brightness(.9);}
 
@@ -91,6 +93,21 @@
   .map-card.fullscreen .chip-rotate{bottom:calc(12px + env(safe-area-inset-bottom));}
   .map-card.fullscreen .chip-follow{bottom:calc(12px + env(safe-area-inset-bottom));}
 
+  /* Control de voz y reloj solo en pantalla completa: en modo normal ya
+     existen btnVoice (topbar) y la hora del propio móvil a la vista, así que
+     aquí solo hacen falta cuando el mapa tapa el resto de la interfaz.
+     Van en el centro de los bordes izq/dcha, la única zona libre entre las
+     4 esquinas (chips) y el centro arriba/abajo (mode-toggle/speed-sign). */
+  .chip-voice{display:none; top:50%; right:12px; transform:translateY(-50%);}
+  .map-card.fullscreen .chip-voice{display:flex;}
+  .fs-clock{
+    display:none; position:absolute; top:50%; left:12px; transform:translateY(-50%);
+    background:rgba(18,24,33,.88); border:1.5px solid var(--border); border-radius:14px;
+    padding:9px 13px; font-family:var(--font-display); font-weight:700; font-size:1.05rem;
+    color:var(--text); z-index:6;
+  }
+  .map-card.fullscreen .fs-clock{display:block;}
+
   .mode-toggle{
     position:absolute; top:12px; left:50%; transform:translateX(-50%);
     display:flex; background:rgba(18,24,33,.9); border:1.5px solid var(--border);
@@ -112,6 +129,40 @@
   }
   .map-card.fullscreen .speed-sign.show{display:flex;}
   .map-card.fullscreen .speed-sign{bottom:calc(14px + env(safe-area-inset-bottom));}
+
+  /* Panel de ruta en pantalla completa: solo visible con .fullscreen, ya que
+     el banner/stat-row normales quedan tapados por el mapa en ese modo
+     (position:fixed + z-index:3000 los cubre por completo). .fs-stack agrupa
+     el panel y el aviso de combustible (que solo aparece si toca repostar)
+     en flujo normal, para que se apilen uno debajo del otro sin necesidad de
+     calcular a mano la altura variable de cada uno. */
+  .fs-stack{
+    display:none; flex-direction:column; gap:10px; position:absolute; left:12px; right:12px;
+    top:calc(12px + env(safe-area-inset-top) + 80px); z-index:6;
+  }
+  .map-card.fullscreen .fs-stack{display:flex;}
+  .fs-panel{
+    display:flex; flex-direction:column; gap:8px;
+    background:rgba(18,24,33,.88); border:1px solid var(--border); border-radius:16px;
+    padding:10px 16px; backdrop-filter:blur(4px);
+  }
+  .fs-panel .fs-cols{display:flex; gap:12px;}
+  .fs-panel .fs-col{flex:1; min-width:0;}
+  .fs-panel .fs-label{font-size:.62rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted2); margin-bottom:2px;}
+  .fs-panel .fs-value{font-family:var(--font-display); font-size:1.15rem; font-weight:700; line-height:1.15;}
+  .fs-panel .fs-sub{font-size:.72rem; color:var(--muted); margin-top:2px; line-height:1.3;}
+  .fs-panel .fs-div{width:1px; align-self:stretch; background:var(--border);}
+  .fs-progress-row{display:flex; align-items:center; gap:8px;}
+  .fs-progress-track{flex:1; height:5px; border-radius:3px; background:rgba(255,255,255,.14); overflow:hidden;}
+  .fs-progress-fill{height:100%; width:0%; background:var(--accent); transition:width .5s ease;}
+  .fs-progress-text{font-size:.68rem; color:var(--muted); white-space:nowrap; flex:none;}
+  .fs-alert{
+    display:none; align-items:center; gap:10px; background:rgba(18,24,33,.9);
+    border:1.5px solid var(--warn); border-radius:14px; padding:10px 14px;
+    font-size:.8rem; color:var(--text); backdrop-filter:blur(4px);
+  }
+  .fs-alert.show{display:flex;}
+  .fs-alert .fs-alert-icon{font-size:1.2rem; flex:none;}
 
   .wp-dot{width:26px; height:26px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; color:#04222a; font-weight:800; font-size:.72rem; font-family:var(--font-display);}
   .wp-dot.done{background:var(--done);}
@@ -299,7 +350,34 @@
     <button class="map-chip chip-overview" id="btnOverview" title="Ver toda la ruta">🗺️</button>
     <button class="map-chip chip-rotate" id="btnRotate" title="Girar mapa según la marcha">🧭</button>
     <button class="map-chip chip-follow" id="btnFollow" title="Seguir mi posición">🎯</button>
+    <button class="map-chip chip-voice" id="btnVoiceFs" title="Voz de los avisos">🔊</button>
+    <div class="fs-clock" id="fsClock">--:--</div>
     <div class="speed-sign" id="speedSign"><span id="speedSignNum">—</span></div>
+    <div class="fs-stack" id="fsStack">
+      <div class="fs-panel" id="fsPanel">
+        <div class="fs-progress-row">
+          <div class="fs-progress-track"><div class="fs-progress-fill" id="fsProgressFill"></div></div>
+          <div class="fs-progress-text" id="fsProgressText">—</div>
+        </div>
+        <div class="fs-cols">
+          <div class="fs-col">
+            <div class="fs-label">Próxima parada</div>
+            <div class="fs-value" id="fsNextDist">—</div>
+            <div class="fs-sub" id="fsNextSub">—</div>
+          </div>
+          <div class="fs-div"></div>
+          <div class="fs-col">
+            <div class="fs-label">Destino final</div>
+            <div class="fs-value" id="fsFinalDist">—</div>
+            <div class="fs-sub" id="fsFinalSub">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="fs-alert" id="fsFuelAlert">
+        <div class="fs-alert-icon">⛽</div>
+        <div id="fsFuelText">—</div>
+      </div>
+    </div>
   </div>
 
   <div class="stat-row">
@@ -351,6 +429,7 @@
   </div>
 
   <div class="app-version" id="appVersion"></div>
+  <button class="btn-update" id="btnUpdate">🔄 Buscar actualización</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -451,7 +530,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v18 · 2026-08-28';
+const APP_VERSION = 'v21 · 2026-08-28';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -569,12 +648,32 @@ function toXY(lat, lon, refLat){
 function fmtDist(m){
   return m < 950 ? (Math.round(m/10)*10) + ' m' : (m/1000).toFixed(1) + ' km';
 }
+// Estima hora de llegada a partir de una distancia y la velocidad media
+// reciente. Sin velocidad fiable (GPS parado, sin lecturas todavía, o
+// arrancando) no se calcula: un ETA con velocidad ~0 daría "llegas dentro de
+// 40 horas" en vez de avisar de que no hay dato suficiente.
+function fmtEta(distM, speedKmh){
+  if(distM === null || speedKmh === null || speedKmh < 5 || !isFinite(distM)) return {time:'—', rel:''};
+  const hours = (distM/1000) / speedKmh;
+  const arrival = new Date(Date.now() + hours*3600*1000);
+  const hh = String(arrival.getHours()).padStart(2,'0');
+  const mm = String(arrival.getMinutes()).padStart(2,'0');
+  const totalMin = Math.round(hours*60);
+  const relH = Math.floor(totalMin/60), relM = totalMin%60;
+  const rel = relH > 0 ? `${relH} h ${relM} min` : `${relM} min`;
+  return {time:`${hh}:${mm}`, rel};
+}
 
 /* ================= Estado ================= */
 let map = null, lastPos = null, watchId = null, currentIdx = 0, followMode = true;
 let lastManualMapInteraction = 0; // para reactivar "seguir" solo si el usuario no ha vuelto a tocar el mapa
 let is3D = false, mapRotateMode = false, lastGpsHeading = null;
 let fullscreenNav = false, wakeLock = null, navPaused = false;
+// Media móvil de la velocidad GPS real (no la instantánea, que salta mucho
+// entre lecturas) usada solo para estimar los ETA del panel de pantalla
+// completa. Lecturas paradas/nulas no la actualizan para que un semáforo no
+// arrastre el promedio a 0 y dispare un ETA absurdo.
+let smoothedSpeedKmh = null;
 let voiceEnabled = localStorage.getItem('motogpstrack_voice') !== 'off';
 let wpMarkers = [], meMarker = null;
 let fullRouteGeoms = new Array(ROUTE.length - 1).fill(null);
@@ -687,6 +786,36 @@ function renderRouteLayer(){
       ? {type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:[[lastPos.lon,lastPos.lat],[ROUTE[0].lon,ROUTE[0].lat]]}}
       : {type:'FeatureCollection', features:[]});
   }
+}
+
+function geomLengthM(coords){
+  let d = 0;
+  for(let i=1;i<coords.length;i++) d += haversine(coords[i-1][1],coords[i-1][0], coords[i][1],coords[i][0])*1000;
+  return d;
+}
+// Distancia real por carretera desde donde estás hasta el ÚLTIMO punto de la
+// ruta: la parte hasta la parada actual (nextDistM, por OSRM giro a giro) más
+// los tramos ROUTE[currentIdx]→ROUTE[currentIdx+1]→...→final ya calculados en
+// fullRouteGeoms (o en línea recta si algún tramo aún no se ha descargado).
+function remainingDistanceToFinalM(nextDistM){
+  if(nextDistM === null) return null;
+  let d = nextDistM;
+  for(let i=currentIdx; i<ROUTE.length-1; i++){
+    const geom = fullRouteGeoms[i];
+    d += geom ? geomLengthM(geom) : haversine(ROUTE[i].lat,ROUTE[i].lon,ROUTE[i+1].lat,ROUTE[i+1].lon)*1000;
+  }
+  return d;
+}
+// Longitud fija de la ruta planificada completa (todos los tramos, de
+// principio a fin), independiente de por dónde vayas ahora mismo — se usa
+// como referencia de "100%" para la barra de progreso.
+function totalRouteDistanceM(){
+  let d = 0;
+  for(let i=0;i<ROUTE.length-1;i++){
+    const geom = fullRouteGeoms[i];
+    d += geom ? geomLengthM(geom) : haversine(ROUTE[i].lat,ROUTE[i].lon,ROUTE[i+1].lat,ROUTE[i+1].lon)*1000;
+  }
+  return d;
 }
 
 /* ================= Navegación giro a giro (OSRM con maniobras reales) =================
@@ -809,6 +938,48 @@ function updateTurnBanner(){
   const dist = Math.max(0, upcoming.cumDist - near.cumDist);
   bIcon.textContent = d.icon; bDist.textContent = fmtDist(dist); bLabel.textContent = d.label;
   maybeAnnounce(upcoming.idx, d.label, dist);
+}
+
+// Panel de datos de ruta visible solo en pantalla completa (ver .fs-panel):
+// el banner y el stat-row normales quedan tapados por el mapa en ese modo.
+function updateFsPanel(){
+  if(!document.getElementById('fsPanel')) return;
+  const elNextDist = document.getElementById('fsNextDist'), elNextSub = document.getElementById('fsNextSub');
+  const elFinalDist = document.getElementById('fsFinalDist'), elFinalSub = document.getElementById('fsFinalSub');
+  const elProgFill = document.getElementById('fsProgressFill'), elProgText = document.getElementById('fsProgressText');
+  const totalM = totalRouteDistanceM();
+  if(currentIdx >= ROUTE.length){
+    elNextDist.textContent = '—'; elNextSub.textContent = 'Ruta completada';
+    elFinalDist.textContent = '—'; elFinalSub.textContent = '—';
+    elProgFill.style.width = '100%';
+    elProgText.textContent = totalM > 0 ? '100% · ' + fmtDist(totalM) : '100%';
+    return;
+  }
+  let nextDistM = null;
+  if(routeModel && lastPos){
+    const near = nearestOnRoute(routeModel, lastPos.lat, lastPos.lon);
+    if(near.distToRoute < ROUTE_DRIFT_RECOMPUTE_M) nextDistM = Math.max(0, routeModel.totalDist - near.cumDist);
+  }
+  const finalDistM = remainingDistanceToFinalM(nextDistM);
+  const etaNext = fmtEta(nextDistM, smoothedSpeedKmh);
+  const etaFinal = fmtEta(finalDistM, smoothedSpeedKmh);
+  elNextDist.textContent = nextDistM !== null ? fmtDist(nextDistM) : '—';
+  elNextSub.textContent = ROUTE[currentIdx].name + (etaNext.time !== '—' ? ' · llega ' + etaNext.time + (etaNext.rel ? ' (' + etaNext.rel + ')' : '') : '');
+  elFinalDist.textContent = finalDistM !== null ? fmtDist(finalDistM) : '—';
+  elFinalSub.textContent = etaFinal.time !== '—' ? 'llega ' + etaFinal.time + (etaFinal.rel ? ' (' + etaFinal.rel + ')' : '') : '—';
+  // Progreso = distancia ya recorrida de la ruta planificada / distancia
+  // total planificada. Se deriva de finalDistM (lo que queda) en vez de
+  // llevar la cuenta aparte, para que quede siempre coherente con el resto
+  // del panel aunque cambie el trazado (recálculo por desvío, etc.).
+  if(totalM > 0 && finalDistM !== null){
+    const traveledM = Math.max(0, totalM - finalDistM);
+    const pct = Math.min(100, Math.max(0, (traveledM/totalM)*100));
+    elProgFill.style.width = pct + '%';
+    elProgText.textContent = Math.round(pct) + '% · ' + fmtDist(traveledM) + ' / ' + fmtDist(totalM);
+  } else {
+    elProgFill.style.width = '0%';
+    elProgText.textContent = '—';
+  }
 }
 
 /* ================= Overpass (radares, gasolineras, límite de velocidad) =================
@@ -1018,12 +1189,16 @@ function updateFuelTracking(lat, lon){
     showToast('⛽ Repostaje detectado, contador reiniciado');
   }
   const fuelAlert = document.getElementById('fuelAlert');
+  const fsFuelAlert = document.getElementById('fsFuelAlert'); // gemelo del aviso, visible en pantalla completa (fuelAlert queda tapado por el mapa ahí)
   const warnAtM = fuelRangeKm * 1000 * 0.8;
   if(odoSinceFuel > warnAtM){
+    const msg = `Llevas ${Math.round(odoSinceFuel/1000)} km sin repostar (autonomía ${fuelRangeKm} km)`;
     fuelAlert.style.display = 'flex';
-    document.getElementById('fuelText').textContent = `⛽ Llevas ${Math.round(odoSinceFuel/1000)} km sin repostar (autonomía ${fuelRangeKm} km)`;
+    document.getElementById('fuelText').textContent = '⛽ ' + msg;
+    if(fsFuelAlert){ fsFuelAlert.classList.add('show'); document.getElementById('fsFuelText').textContent = msg; }
   } else {
     fuelAlert.style.display = 'none';
+    if(fsFuelAlert) fsFuelAlert.classList.remove('show');
   }
 }
 
@@ -1169,6 +1344,7 @@ function updateStats(pos){
   }
   const kmh = (pos.coords.speed !== null && !isNaN(pos.coords.speed)) ? Math.round(pos.coords.speed*3.6) : null;
   document.getElementById('statSpeed').innerHTML = (kmh !== null ? kmh : '—') + ' <span class="unit">km/h</span>';
+  if(kmh !== null && kmh >= 3) smoothedSpeedKmh = smoothedSpeedKmh === null ? kmh : smoothedSpeedKmh*0.85 + kmh*0.15;
 }
 
 /* ================= GPS ================= */
@@ -1199,8 +1375,9 @@ function startWatch(){
     updateMeMarker(lastPos.lat, lastPos.lon);
     applyRotation();
     updateStats(pos);
-    maybeRecomputeRoute().then(updateTurnBanner);
+    maybeRecomputeRoute().then(() => { updateTurnBanner(); updateFsPanel(); });
     updateTurnBanner();
+    updateFsPanel();
     checkRadarAlerts();
     maybeLoadTrafficSigns().then(checkRadarAlerts);
     updateFuelTracking(lastPos.lat, lastPos.lon);
@@ -1444,6 +1621,7 @@ function toggleFullscreen(){
   const card = document.getElementById('mapCard');
   card.classList.toggle('fullscreen', fullscreenNav);
   document.getElementById('btnFullscreen').textContent = fullscreenNav ? '✕' : '⛶';
+  if(fullscreenNav) updateFsPanel();
   setTimeout(() => { if(map) map.resize(); }, 60);
 }
 
@@ -1571,12 +1749,20 @@ document.getElementById('routesList').addEventListener('click', e => {
 });
 document.getElementById('closeRoutes').addEventListener('click', closeRoutesSheet);
 document.getElementById('btnOpenRoutes').addEventListener('click', openRoutesSheet);
+// btnVoice (topbar) y btnVoiceFs (chip solo visible en pantalla completa,
+// donde el topbar queda tapado por el mapa) son dos botones con el mismo
+// estado: se mantienen sincronizados aquí en vez de compartir id porque el
+// HTML no permite id duplicados.
 function updateVoiceBtn(){
-  const btn = document.getElementById('btnVoice');
-  btn.textContent = voiceEnabled ? '🔊' : '🔇';
-  btn.classList.toggle('off', !voiceEnabled);
+  const icon = voiceEnabled ? '🔊' : '🔇';
+  ['btnVoice','btnVoiceFs'].forEach(id => {
+    const btn = document.getElementById(id);
+    if(!btn) return;
+    btn.textContent = icon;
+    btn.classList.toggle('off', !voiceEnabled);
+  });
 }
-document.getElementById('btnVoice').addEventListener('click', () => {
+function toggleVoice(){
   voiceEnabled = !voiceEnabled;
   localStorage.setItem('motogpstrack_voice', voiceEnabled ? 'on' : 'off');
   updateVoiceBtn();
@@ -1584,8 +1770,22 @@ document.getElementById('btnVoice').addEventListener('click', () => {
   // en Safari/iOS igual que "Activar ubicación", por si se activa la voz
   // aquí antes de arrancar la navegación.
   if(voiceEnabled) speakIfPossible('Voz activada');
-});
+}
+document.getElementById('btnVoice').addEventListener('click', toggleVoice);
+document.getElementById('btnVoiceFs').addEventListener('click', toggleVoice);
 updateVoiceBtn();
+
+// Reloj del panel de pantalla completa: independiente de las lecturas GPS
+// (esas pueden espaciarse varios segundos) para que la hora nunca se quede
+// clavada mientras esperas señal o vas parado en un semáforo.
+function updateFsClock(){
+  const el = document.getElementById('fsClock');
+  if(!el) return;
+  const now = new Date();
+  el.textContent = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+}
+setInterval(updateFsClock, 1000);
+updateFsClock();
 document.getElementById('btnNewRoute').addEventListener('click', () => openEditor(null));
 
 /* ================= Importar ruta desde GPX ================= */
@@ -2326,6 +2526,32 @@ openRoutesSheet();
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(()=>{}); });
 }
+
+// "Buscar actualización": el registro normal de arriba deja que sea el
+// propio navegador quien decida cuándo comprobar si sw.js ha cambiado (hasta
+// 24h, y solo en alguna navegación), así que una PWA que se deja siempre
+// abierta puede quedarse días en una versión vieja sin que nada la avise. En
+// vez de confiar en ese ciclo, este botón fuerza un reinicio completo:
+// vacía las cachés de la Cache API, desregistra el service worker (para que
+// el siguiente register() de arriba instale uno limpio desde cero) y
+// recarga con un parámetro anti-caché para saltarse también cualquier caché
+// HTTP del navegador o de por medio.
+document.getElementById('btnUpdate').addEventListener('click', async () => {
+  const btn = document.getElementById('btnUpdate');
+  btn.disabled = true;
+  btn.textContent = '🔄 Actualizando…';
+  try{
+    if('caches' in window){
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  }catch(e){}
+  location.href = location.pathname + '?v=' + Date.now();
+});
 </script>
 </body>
 </html>
