@@ -530,7 +530,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v21 · 2026-08-28';
+const APP_VERSION = 'v22 · 2026-08-28';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -1557,6 +1557,25 @@ function initMap(){
     }
   });
   map.on('zoom', updateRadarVisibility);
+  // Antes solo el arrastre (dragstart) contaba como "interacción manual" y
+  // reiniciaba el aviso de 12 s para reactivar "seguir": si tras pulsar "ver
+  // ruta completa" hacías zoom con los dedos para mirar el detalle sin
+  // arrastrar, el contador seguía corriendo desde el clic del botón y el
+  // mapa volvía de golpe a tu posición a media exploración. e.originalEvent
+  // solo existe cuando el cambio de zoom lo ha originado un gesto real del
+  // usuario (pellizco, rueda, doble toque) — así no se confunde con los
+  // zooms que dispara el propio código (fitToRoute, setFollow, set3D...),
+  // que si no volverían a apagar "seguir" justo después de haberlo
+  // reactivado ellos mismos.
+  map.on('zoomstart', e => {
+    if(!e.originalEvent) return;
+    setFollow(false);
+    lastManualMapInteraction = Date.now();
+  });
+  map.on('zoom', e => {
+    if(!e.originalEvent) return;
+    lastManualMapInteraction = Date.now();
+  });
 }
 function setMapStyle(id){
   if(!MAP_STYLES[id] || id === mapStyleId || !map) return;
