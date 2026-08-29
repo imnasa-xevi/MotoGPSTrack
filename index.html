@@ -538,7 +538,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v24 · 2026-08-28';
+const APP_VERSION = 'v25 · 2026-08-29';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -1094,11 +1094,24 @@ function renderTrafficSignMarkers(){
 function checkRadarAlerts(){
   const alertEl = document.getElementById('radarAlert');
   if((!radarPoints.length && !trafficSigns.length) || !lastPos){ alertEl.style.display='none'; return; }
-  const ALERT_M=700, VOICE_M=500;
+  const ALERT_M=700, VOICE_M=500, SIGN_ROUTE_M=20;
   let closest=null, closestDist=Infinity, closestKind=null;
   const consider = (r, kind) => {
     const d = haversine(lastPos.lat,lastPos.lon,r.lat,r.lon)*1000;
     if(d>ALERT_M) return;
+    // Un stop/ceda/semáforo/paso de peatones es un punto de OSM: en
+    // cualquier cruce o rotonda hay varios (uno por ramal), y el cono de
+    // "delante de mí" de abajo no basta para descartar los que no son tuyos
+    // — uno en la calle paralela o en el ramal de al lado caía dentro igual.
+    // Si ya se conoce la carretera real que vas a seguir (routeModel), solo
+    // cuentan las señales pegadas a ESA carretera: las que de verdad te van
+    // a llegar a ti en el cruce, no las de otro ramal o vía cercana. Los
+    // radares no se filtran así: son mucho menos densos y sí interesa verlos
+    // aunque estén en una vía paralela por la que también podrías pasar.
+    if(kind !== 'radar' && routeModel){
+      const near = nearestOnRoute(routeModel, r.lat, r.lon);
+      if(near.distToRoute > SIGN_ROUTE_M) return;
+    }
     let ahead=true;
     if(lastGpsHeading!==null){
       const b = bearing(lastPos.lat,lastPos.lon,r.lat,r.lon);
@@ -1300,27 +1313,42 @@ function updateMeMarker(lat, lon){
 }
 
 /* ================= Progreso por la ruta ================= */
+function arriveAtWaypoint(i, skipped){
+  const wp = ROUTE[i];
+  currentIdx = i + 1;
+  if(currentIdx === 1) fromMeGeom = null; // ya no hace falta el tramo "desde mí": el 1 ya se alcanzó
+  updateWpMarkerStyles();
+  showToast((skipped > 0 ? '⏭ ' : '✓ ') + wp.name);
+  if(currentIdx < ROUTE.length) speakIfPossible('Siguiente destino: ' + ROUTE[currentIdx].name);
+}
 function advanceIfClose(){
   if(!lastPos || currentIdx >= ROUTE.length) return;
-  // No solo la siguiente parada: tras perder señal GPS un buen rato (túnel,
-  // valle sin cobertura — habitual en los puertos de montaña) o reabrir la
-  // app otro día del viaje ya en el punto de pernocta siguiente, la posición
-  // real puede "saltar" varias paradas de golpe. Se busca en todas las que
-  // quedan por delante y nos quedamos con la primera (la más próxima en el
-  // recorrido, no la más cercana en línea recta) a menos de 600 m — así una
-  // parada repetida más adelante (p. ej. "Jaca" dos veces en la misma ruta)
-  // no hace que nos salte por delante de la primera. Sin esto, currentIdx se
-  // quedaba pidiendo llegar a una parada ya superada para siempre.
-  for(let i = currentIdx; i < ROUTE.length; i++){
+  // La parada inmediatamente siguiente se comprueba con un radio holgado
+  // (600 m: margen normal porque el marcador no cae exactamente sobre la
+  // carretera real). Antes ese mismo radio de 600 m se aplicaba también a
+  // TODAS las paradas futuras (por si perdías señal GPS un buen rato en un
+  // túnel/valle sin cobertura y la posición "saltaba" varias de golpe) — eso
+  // es peligroso en rutas de montaña: en un puerto con curvas muy cerradas o
+  // un valle estrecho, la distancia en LÍNEA RECTA a una parada de dentro de
+  // varios días puede caer por debajo de 600 m aunque por carretera queden
+  // aún cientos de km. currentIdx saltaba entonces hasta esa parada lejana
+  // (a veces la última) de golpe, la navegación daba la ruta por terminada
+  // muy antes de llegar de verdad, y el color del recorrido y la barra de
+  // progreso se quedaban congelados desde ese instante. Para las paradas
+  // MÁS ALLÁ de la siguiente, ahora se exige estar casi encima (150 m): solo
+  // dispara en el caso real que motivó esto (reabrir la app ya aparcado en
+  // el siguiente punto de pernocta), no por una coincidencia geográfica de
+  // un puerto de montaña.
+  const wpNext = ROUTE[currentIdx];
+  if(haversine(lastPos.lat, lastPos.lon, wpNext.lat, wpNext.lon) < 0.6){
+    arriveAtWaypoint(currentIdx, 0);
+    return;
+  }
+  const SKIP_AHEAD_KM = 0.15; // 150 m
+  for(let i = currentIdx + 1; i < ROUTE.length; i++){
     const wp = ROUTE[i];
-    const d = haversine(lastPos.lat, lastPos.lon, wp.lat, wp.lon);
-    if(d < 0.6){ // 600 m
-      const skipped = i - currentIdx;
-      currentIdx = i + 1;
-      if(currentIdx === 1) fromMeGeom = null; // ya no hace falta el tramo "desde mí": el 1 ya se alcanzó
-      updateWpMarkerStyles();
-      showToast((skipped > 0 ? '⏭ ' : '✓ ') + wp.name);
-      if(currentIdx < ROUTE.length) speakIfPossible('Siguiente destino: ' + ROUTE[currentIdx].name);
+    if(haversine(lastPos.lat, lastPos.lon, wp.lat, wp.lon) < SKIP_AHEAD_KM){
+      arriveAtWaypoint(i, i - currentIdx);
       return;
     }
   }
