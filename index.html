@@ -538,7 +538,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v25 · 2026-08-29';
+const APP_VERSION = 'v26 · 2026-08-29';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -571,7 +571,12 @@ const PIRINEOS_WAYPOINTS = [
   {name:'Isaba', lat:42.8760, lon:-0.8825},
 ];
 /* Transpirenaica por España - variante 5 días 2026 (Girona-Vielha-Sallent de
-   Gállego-Isaba-Aínsa-Girona), a partir de Ruta_Pirineos_Espana_2026.gpx */
+   Gállego-Isaba-Aínsa-Girona), a partir de Ruta_Pirineos_Espana_2026.gpx.
+   Día 4 corregido: la versión original repetía Jaca (ya visitada el día 3)
+   para volver de Isaba a Aínsa. Ahora baja por Sigüés/Berdún/Sabiñánigo sin
+   pasar otra vez por Jaca, y añade Broto (parada real en el Parque Nacional
+   de Ordesa) de camino — 43 km y 43 min menos que el trazado que repetía
+   Jaca, con tiempo real para Ordesa en vez de solo pasar de largo. */
 const PIRINEOS_5DIAS_WAYPOINTS = [
   {name:'Girona (salida)', lat:41.9794, lon:2.8214},
   {name:'Olot', lat:42.1817, lon:2.4900},
@@ -602,8 +607,13 @@ const PIRINEOS_5DIAS_WAYPOINTS = [
   {name:'Belagua', lat:42.9700, lon:-0.8100},
   {name:'Venta de Juan Pito', lat:42.9833, lon:-0.7550},
   {name:'Isaba (noche)', lat:42.8664, lon:-0.8783},
-  {name:'Jaca', lat:42.5700, lon:-0.5500},
+  {name:'Sigüés', lat:42.6303, lon:-1.0118},
+  {name:'Berdún', lat:42.6033, lon:-0.8586},
   {name:'Sabiñánigo', lat:42.5192, lon:-0.3608},
+  {name:'Biescas', lat:42.6167, lon:-0.3167},
+  {name:'Broto (Ordesa)', lat:42.6033, lon:-0.1218},
+  {name:'Fiscal', lat:42.4955, lon:-0.1198},
+  {name:'Boltaña', lat:42.4460, lon:0.0676},
   {name:'Aínsa', lat:42.4159, lon:0.1381},
   {name:'Campo', lat:42.4167, lon:0.4000},
   {name:'Benabarre', lat:42.1006, lon:0.4767},
