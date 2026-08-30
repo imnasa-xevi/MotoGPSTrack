@@ -491,7 +491,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v27 · 2026-08-30';
+const APP_VERSION = 'v28 · 2026-08-30';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -734,19 +734,38 @@ async function maybeLoadFromMeGeom(){
   renderRouteLayer();
 }
 
+// Añade el tramo actual como una única línea 'current', o partida en un
+// trozo 'done' (lo ya recorrido) + 'current' (lo que queda) si se conoce tu
+// progreso real dentro de ese tramo — así el recorrido hecho se ve de otro
+// color según avanzas, no solo tramo a tramo completo.
+function pushCurrentLegFeature(features, coords){
+  const progress = currentLegProgress();
+  if(progress && progress.traveledM > 5 && progress.traveledM < progress.totalM - 5){
+    const {before, after} = splitGeomAtCum(coords, progress.traveledM);
+    features.push({type:'Feature', properties:{status:'done'}, geometry:{type:'LineString', coordinates:before}});
+    features.push({type:'Feature', properties:{status:'current'}, geometry:{type:'LineString', coordinates:after}});
+  } else {
+    features.push({type:'Feature', properties:{status:'current'}, geometry:{type:'LineString', coordinates:coords}});
+  }
+}
 function renderRouteLayer(){
   if(!map || !map.getSource('route')) return;
   const features = [];
   for(let i=0;i<ROUTE.length-1;i++){
     const coords = fullRouteGeoms[i] || [[ROUTE[i].lon, ROUTE[i].lat], [ROUTE[i+1].lon, ROUTE[i+1].lat]];
-    const status = (i+1 < currentIdx) ? 'done' : (i+1 === currentIdx ? 'current' : 'upcoming');
-    features.push({type:'Feature', properties:{status}, geometry:{type:'LineString', coordinates:coords}});
+    if(i+1 < currentIdx){
+      features.push({type:'Feature', properties:{status:'done'}, geometry:{type:'LineString', coordinates:coords}});
+    } else if(i+1 === currentIdx){
+      pushCurrentLegFeature(features, coords);
+    } else {
+      features.push({type:'Feature', properties:{status:'upcoming'}, geometry:{type:'LineString', coordinates:coords}});
+    }
   }
   if(currentIdx === 0 && lastPos && fromMeGeom){
     // Solo se añade aquí (tramo sólido "actual") cuando ya se tiene la
     // carretera real; mientras se carga, se ve la línea discontinua de
     // single-dest-pending para no mostrar una recta como si fuera la ruta.
-    features.push({type:'Feature', properties:{status:'current'}, geometry:{type:'LineString', coordinates:fromMeGeom}});
+    pushCurrentLegFeature(features, fromMeGeom);
   }
   map.getSource('route').setData({type:'FeatureCollection', features});
   if(map.getSource('single-dest-pending')){
@@ -775,16 +794,68 @@ function remainingDistanceToFinalM(nextDistM){
   }
   return d;
 }
-// Longitud fija de la ruta planificada completa (todos los tramos, de
-// principio a fin), independiente de por dónde vayas ahora mismo — se usa
-// como referencia de "100%" para la barra de progreso.
-function totalRouteDistanceM(){
-  let d = 0;
-  for(let i=0;i<ROUTE.length-1;i++){
-    const geom = fullRouteGeoms[i];
-    d += geom ? geomLengthM(geom) : haversine(ROUTE[i].lat,ROUTE[i].lon,ROUTE[i+1].lat,ROUTE[i+1].lon)*1000;
+/* ================= Progreso dentro del tramo actual =================
+   La barra de progreso y el "recorrido ya hecho" en el mapa se miden sobre
+   el TRAMO ACTUAL (desde la última parada hasta la siguiente), no sobre la
+   ruta completa: es lo que se ve avanzar de verdad mientras circulas entre
+   dos paradas de un viaje de varios días. */
+// Proyecta (lat,lon) sobre una polilínea [[lon,lat],...] y devuelve la
+// distancia perpendicular a ella, la distancia acumulada hasta ese punto
+// desde el principio de la polilínea, y la longitud total de la polilínea
+// (subproducto del mismo recorrido, sin tener que sumarla aparte).
+function projectOntoGeom(coords, lat, lon){
+  const [px,py] = toXY(lat, lon, lat);
+  let bestDist = Infinity, bestCum = 0, cum = 0;
+  for(let i=0;i<coords.length-1;i++){
+    const [lon1,lat1] = coords[i], [lon2,lat2] = coords[i+1];
+    const [x1,y1] = toXY(lat1,lon1,lat), [x2,y2] = toXY(lat2,lon2,lat);
+    const dx=x2-x1, dy=y2-y1;
+    const segLen = Math.sqrt(dx*dx+dy*dy);
+    let t = segLen>0 ? ((px-x1)*dx+(py-y1)*dy)/(segLen*segLen) : 0;
+    t = Math.max(0, Math.min(1, t));
+    const dist = Math.hypot(px-(x1+t*dx), py-(y1+t*dy));
+    if(dist < bestDist){ bestDist = dist; bestCum = cum + t*segLen; }
+    cum += segLen;
   }
-  return d;
+  return {distToLine: bestDist, cumDist: bestCum, totalDist: cum};
+}
+// Corta una polilínea en el punto que cae a targetCum metros de su inicio,
+// insertando el punto exacto de corte para que las dos mitades empalmen sin
+// hueco visual. Se usa para pintar "lo ya recorrido" de un color y "lo que
+// queda" de otro dentro del mismo tramo.
+function splitGeomAtCum(coords, targetCum){
+  let cum = 0;
+  for(let i=0;i<coords.length-1;i++){
+    const [lon1,lat1] = coords[i], [lon2,lat2] = coords[i+1];
+    const segLen = haversine(lat1,lon1,lat2,lon2)*1000;
+    if(cum + segLen >= targetCum){
+      const t = segLen>0 ? Math.max(0, Math.min(1, (targetCum-cum)/segLen)) : 0;
+      const splitPt = [lon1+(lon2-lon1)*t, lat1+(lat2-lat1)*t];
+      return {before: coords.slice(0, i+1).concat([splitPt]), after: [splitPt].concat(coords.slice(i+1))};
+    }
+    cum += segLen;
+  }
+  return {before: coords, after: [coords[coords.length-1]]};
+}
+// Geometría real del tramo en el que estás ahora mismo: desde tu posición
+// de salida real hasta la primera parada (fromMeGeom) si aún no has
+// alcanzado ninguna, o el tramo oficial ROUTE[currentIdx-1]→ROUTE[currentIdx]
+// ya calculado en fullRouteGeoms para el resto de casos.
+function currentLegGeom(){
+  if(currentIdx === 0) return fromMeGeom;
+  return fullRouteGeoms[currentIdx-1] || null;
+}
+function currentLegProgress(){
+  if(!lastPos || currentIdx >= ROUTE.length) return null;
+  const geom = currentLegGeom();
+  if(!geom || geom.length < 2) return null;
+  const proj = projectOntoGeom(geom, lastPos.lat, lastPos.lon);
+  if(proj.totalDist <= 0) return null;
+  return {
+    traveledM: proj.cumDist,
+    totalM: proj.totalDist,
+    pct: Math.min(100, Math.max(0, (proj.cumDist/proj.totalDist)*100))
+  };
 }
 
 /* ================= Navegación giro a giro (OSRM con maniobras reales) =================
@@ -916,12 +987,11 @@ function updateFsPanel(){
   const elNextDist = document.getElementById('fsNextDist'), elNextSub = document.getElementById('fsNextSub');
   const elFinalDist = document.getElementById('fsFinalDist'), elFinalSub = document.getElementById('fsFinalSub');
   const elProgFill = document.getElementById('fsProgressFill'), elProgText = document.getElementById('fsProgressText');
-  const totalM = totalRouteDistanceM();
   if(currentIdx >= ROUTE.length){
     elNextDist.textContent = '—'; elNextSub.textContent = 'Ruta completada';
     elFinalDist.textContent = '—'; elFinalSub.textContent = '—';
     elProgFill.style.width = '100%';
-    elProgText.textContent = totalM > 0 ? '100% · ' + fmtDist(totalM) : '100%';
+    elProgText.textContent = '100%';
     return;
   }
   let nextDistM = null;
@@ -936,20 +1006,19 @@ function updateFsPanel(){
   elNextSub.textContent = ROUTE[currentIdx].name + (etaNext.time !== '—' ? ' · llega ' + etaNext.time + (etaNext.rel ? ' (' + etaNext.rel + ')' : '') : '');
   elFinalDist.textContent = finalDistM !== null ? fmtDist(finalDistM) : '—';
   elFinalSub.textContent = etaFinal.time !== '—' ? 'llega ' + etaFinal.time + (etaFinal.rel ? ' (' + etaFinal.rel + ')' : '') : '—';
-  // Progreso = distancia ya recorrida de la ruta planificada / distancia
-  // total planificada. Se deriva de finalDistM (lo que queda) en vez de
-  // llevar la cuenta aparte, para que quede siempre coherente con el resto
-  // del panel aunque cambie el trazado (recálculo por desvío, etc.). Sin
-  // cobertura para pedir la ruta a OSRM (habitual en puertos de montaña,
-  // justo donde más se usa esta app) finalDistM se queda sin dato un buen
-  // rato: antes la barra se quedaba en "—" todo ese tiempo, pareciendo rota.
-  // De reserva, se usa el nº de paradas ya alcanzadas — más basto, pero
-  // siempre disponible aunque no haya red.
+  // Progreso = km ya hechos del TRAMO ACTUAL (desde la última parada hasta
+  // la siguiente), no de la ruta completa: es lo que avanza de verdad
+  // mientras circulas entre dos paradas. Se apoya en la misma proyección
+  // sobre la carretera real que usa el color del recorrido en el mapa (ver
+  // currentLegProgress), así ambos van siempre coordinados. Sin la
+  // geometría del tramo todavía cargada (arranque, o sin cobertura para
+  // pedirla a OSRM) se recurre al nº de paradas alcanzadas, para no dejar
+  // la barra en "—" el rato que tarde en llegar.
+  const legProgress = currentLegProgress();
   let pct;
-  if(totalM > 0 && finalDistM !== null){
-    const traveledM = Math.max(0, totalM - finalDistM);
-    pct = Math.min(100, Math.max(0, (traveledM/totalM)*100));
-    elProgText.textContent = Math.round(pct) + '% · ' + fmtDist(traveledM) + ' / ' + fmtDist(totalM);
+  if(legProgress){
+    pct = legProgress.pct;
+    elProgText.textContent = Math.round(pct) + '% · ' + fmtDist(legProgress.traveledM) + ' / ' + fmtDist(legProgress.totalM);
   } else if(ROUTE.length > 1){
     pct = Math.min(100, Math.max(0, (currentIdx/(ROUTE.length-1))*100));
     elProgText.textContent = Math.round(pct) + '%';
@@ -1308,9 +1377,10 @@ function startWatch(){
     updateMeMarker(lastPos.lat, lastPos.lon);
     applyRotation();
     updateStats(pos);
-    maybeRecomputeRoute().then(() => { updateTurnBanner(); updateFsPanel(); });
+    maybeRecomputeRoute().then(() => { updateTurnBanner(); updateFsPanel(); renderRouteLayer(); });
     updateTurnBanner();
     updateFsPanel();
+    renderRouteLayer();
     checkRadarAlerts();
     maybeLoadTrafficSigns().then(checkRadarAlerts);
     maybeLoadMaxspeed().then(updateSpeedSign);
