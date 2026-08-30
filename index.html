@@ -481,6 +481,20 @@
   </div>
 </div>
 
+<!-- Sheet propio en vez de confirm() nativo: con guantes de moto, el OK
+     minúsculo del diálogo nativo del navegador es difícil de acertar —
+     aquí es un botón grande, igual que el resto de la app. -->
+<div class="overlay hidden" id="confirmStopOverlay">
+  <div class="sheet">
+    <div class="sheet-head"><h3>¿Terminar la navegación?</h3><button class="sheet-close" id="closeConfirmStop">✕</button></div>
+    <p class="muted-p">El progreso no se pierde.</p>
+    <div style="display:flex; gap:10px;">
+      <button class="btn secondary" id="btnConfirmStopCancel" style="flex:1;">Cancelar</button>
+      <button class="btn danger" id="btnConfirmStopOk" style="flex:1;">🛑 Terminar</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -491,7 +505,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v28 · 2026-08-30';
+const APP_VERSION = 'v29 · 2026-08-30';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -1788,7 +1802,13 @@ document.getElementById('btnPause').addEventListener('click', () => {
   }
 });
 document.getElementById('btnStop').addEventListener('click', () => {
-  if(!confirm('¿Terminar la navegación? El progreso no se pierde.')) return;
+  document.getElementById('confirmStopOverlay').classList.remove('hidden');
+});
+function closeConfirmStop(){ document.getElementById('confirmStopOverlay').classList.add('hidden'); }
+document.getElementById('closeConfirmStop').addEventListener('click', closeConfirmStop);
+document.getElementById('btnConfirmStopCancel').addEventListener('click', closeConfirmStop);
+document.getElementById('btnConfirmStopOk').addEventListener('click', () => {
+  closeConfirmStop();
   if(watchId !== null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
   if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock = null; }
   document.getElementById('gpsDot').classList.remove('live');
