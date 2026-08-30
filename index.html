@@ -151,29 +151,6 @@
   .map-card.fullscreen .speed-sign.show{display:flex;}
   .map-card.fullscreen .speed-sign{bottom:calc(14px + env(safe-area-inset-bottom));}
 
-  /* Panel de ruta en pantalla completa: solo visible con .fullscreen, ya que
-     el banner/stat-row normales quedan tapados por el mapa en ese modo
-     (position:fixed + z-index:3000 los cubre por completo). .fs-stack agrupa
-     el panel y el aviso de combustible (que solo aparece si toca repostar)
-     en flujo normal, para que se apilen uno debajo del otro sin necesidad de
-     calcular a mano la altura variable de cada uno. */
-  .fs-stack{
-    display:none; flex-direction:column; gap:10px; position:absolute; left:12px; right:12px;
-    top:calc(12px + env(safe-area-inset-top) + 80px); z-index:6;
-  }
-  .map-card.fullscreen .fs-stack{display:flex;}
-  .fs-panel{
-    display:flex; flex-direction:column; gap:8px;
-    background:rgba(18,24,33,.88); border:1px solid var(--border); border-radius:16px;
-    padding:10px 16px; backdrop-filter:blur(4px);
-  }
-  .fs-panel .fs-cols{display:flex; gap:12px;}
-  .fs-panel .fs-col{flex:1; min-width:0;}
-  .fs-panel .fs-label{font-size:.62rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted2); margin-bottom:2px;}
-  .fs-panel .fs-value{font-family:var(--font-display); font-size:1.15rem; font-weight:700; line-height:1.15;}
-  .fs-panel .fs-sub{font-size:.72rem; color:var(--muted); margin-top:2px; line-height:1.3;}
-  .fs-panel .fs-div{width:1px; align-self:stretch; background:var(--border);}
-
   .wp-dot{width:26px; height:26px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; color:#04222a; font-weight:800; font-size:.72rem; font-family:var(--font-display);}
   .wp-dot.done{background:var(--done);}
   .wp-dot.current{width:32px; height:32px; background:var(--go); font-size:.85rem;}
@@ -357,23 +334,6 @@
     </div>
     <div class="fs-progress-v" id="fsProgressV"><div class="fs-progress-v-fill" id="fsProgressVFill"></div></div>
     <div class="speed-sign" id="speedSign"><span id="speedSignNum">—</span></div>
-    <div class="fs-stack" id="fsStack">
-      <div class="fs-panel" id="fsPanel">
-        <div class="fs-cols">
-          <div class="fs-col">
-            <div class="fs-label">Próxima parada</div>
-            <div class="fs-value" id="fsNextDist">—</div>
-            <div class="fs-sub" id="fsNextSub">—</div>
-          </div>
-          <div class="fs-div"></div>
-          <div class="fs-col">
-            <div class="fs-label">Destino final</div>
-            <div class="fs-value" id="fsFinalDist">—</div>
-            <div class="fs-sub" id="fsFinalSub">—</div>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 
   <div class="stat-row">
@@ -517,7 +477,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v30 · 2026-08-30';
+const APP_VERSION = 'v31 · 2026-08-30';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -645,32 +605,12 @@ function toXY(lat, lon, refLat){
 function fmtDist(m){
   return m < 950 ? (Math.round(m/10)*10) + ' m' : (m/1000).toFixed(1) + ' km';
 }
-// Estima hora de llegada a partir de una distancia y la velocidad media
-// reciente. Sin velocidad fiable (GPS parado, sin lecturas todavía, o
-// arrancando) no se calcula: un ETA con velocidad ~0 daría "llegas dentro de
-// 40 horas" en vez de avisar de que no hay dato suficiente.
-function fmtEta(distM, speedKmh){
-  if(distM === null || speedKmh === null || speedKmh < 5 || !isFinite(distM)) return {time:'—', rel:''};
-  const hours = (distM/1000) / speedKmh;
-  const arrival = new Date(Date.now() + hours*3600*1000);
-  const hh = String(arrival.getHours()).padStart(2,'0');
-  const mm = String(arrival.getMinutes()).padStart(2,'0');
-  const totalMin = Math.round(hours*60);
-  const relH = Math.floor(totalMin/60), relM = totalMin%60;
-  const rel = relH > 0 ? `${relH} h ${relM} min` : `${relM} min`;
-  return {time:`${hh}:${mm}`, rel};
-}
 
 /* ================= Estado ================= */
 let map = null, lastPos = null, watchId = null, currentIdx = 0, followMode = true;
 let lastManualMapInteraction = 0; // para reactivar "seguir" solo si el usuario no ha vuelto a tocar el mapa
 let is3D = false, mapRotateMode = false, lastGpsHeading = null;
 let fullscreenNav = false, wakeLock = null, navPaused = false;
-// Media móvil de la velocidad GPS real (no la instantánea, que salta mucho
-// entre lecturas) usada solo para estimar los ETA del panel de pantalla
-// completa. Lecturas paradas/nulas no la actualizan para que un semáforo no
-// arrastre el promedio a 0 y dispare un ETA absurdo.
-let smoothedSpeedKmh = null;
 let voiceEnabled = localStorage.getItem('motogpstrack_voice') !== 'off';
 let wpMarkers = [], meMarker = null;
 let fullRouteGeoms = new Array(ROUTE.length - 1).fill(null);
@@ -802,24 +742,6 @@ function renderRouteLayer(){
   }
 }
 
-function geomLengthM(coords){
-  let d = 0;
-  for(let i=1;i<coords.length;i++) d += haversine(coords[i-1][1],coords[i-1][0], coords[i][1],coords[i][0])*1000;
-  return d;
-}
-// Distancia real por carretera desde donde estás hasta el ÚLTIMO punto de la
-// ruta: la parte hasta la parada actual (nextDistM, por OSRM giro a giro) más
-// los tramos ROUTE[currentIdx]→ROUTE[currentIdx+1]→...→final ya calculados en
-// fullRouteGeoms (o en línea recta si algún tramo aún no se ha descargado).
-function remainingDistanceToFinalM(nextDistM){
-  if(nextDistM === null) return null;
-  let d = nextDistM;
-  for(let i=currentIdx; i<ROUTE.length-1; i++){
-    const geom = fullRouteGeoms[i];
-    d += geom ? geomLengthM(geom) : haversine(ROUTE[i].lat,ROUTE[i].lon,ROUTE[i+1].lat,ROUTE[i+1].lon)*1000;
-  }
-  return d;
-}
 /* ================= Progreso dentro del tramo actual =================
    La barra de progreso y el "recorrido ya hecho" en el mapa se miden sobre
    el TRAMO ACTUAL (desde la última parada hasta la siguiente), no sobre la
@@ -1006,40 +928,23 @@ function updateTurnBanner(){
   maybeAnnounce(upcoming.idx, d.label, dist);
 }
 
-// Panel de datos de ruta visible solo en pantalla completa (ver .fs-panel):
-// el banner y el stat-row normales quedan tapados por el mapa en ese modo.
-function updateFsPanel(){
-  if(!document.getElementById('fsPanel')) return;
-  const elNextDist = document.getElementById('fsNextDist'), elNextSub = document.getElementById('fsNextSub');
-  const elFinalDist = document.getElementById('fsFinalDist'), elFinalSub = document.getElementById('fsFinalSub');
+// Barra de progreso vertical, visible solo en pantalla completa (ver
+// .fs-progress-v). Mide el tramo ACTUAL (desde la última parada hasta la
+// siguiente), no la ruta completa: es lo que avanza de verdad mientras
+// circulas entre dos paradas. Se apoya en la misma proyección sobre la
+// carretera real que usa el color del recorrido en el mapa (ver
+// currentLegProgress), así ambos van siempre coordinados. Sin la geometría
+// del tramo todavía cargada (arranque, o sin cobertura para pedirla a OSRM)
+// se recurre al nº de paradas alcanzadas, para no dejar la barra sin dato el
+// rato que tarde en llegar.
+function updateFsProgress(){
   const elProgFill = document.getElementById('fsProgressVFill'), elProgText = document.getElementById('fsProgressLabel');
+  if(!elProgFill) return;
   if(currentIdx >= ROUTE.length){
-    elNextDist.textContent = '—'; elNextSub.textContent = 'Ruta completada';
-    elFinalDist.textContent = '—'; elFinalSub.textContent = '—';
     elProgFill.style.height = '100%';
     elProgText.textContent = '100%';
     return;
   }
-  let nextDistM = null;
-  if(routeModel && lastPos){
-    const near = nearestOnRoute(routeModel, lastPos.lat, lastPos.lon);
-    if(near.distToRoute < ROUTE_DRIFT_RECOMPUTE_M) nextDistM = Math.max(0, routeModel.totalDist - near.cumDist);
-  }
-  const finalDistM = remainingDistanceToFinalM(nextDistM);
-  const etaNext = fmtEta(nextDistM, smoothedSpeedKmh);
-  const etaFinal = fmtEta(finalDistM, smoothedSpeedKmh);
-  elNextDist.textContent = nextDistM !== null ? fmtDist(nextDistM) : '—';
-  elNextSub.textContent = ROUTE[currentIdx].name + (etaNext.time !== '—' ? ' · llega ' + etaNext.time + (etaNext.rel ? ' (' + etaNext.rel + ')' : '') : '');
-  elFinalDist.textContent = finalDistM !== null ? fmtDist(finalDistM) : '—';
-  elFinalSub.textContent = etaFinal.time !== '—' ? 'llega ' + etaFinal.time + (etaFinal.rel ? ' (' + etaFinal.rel + ')' : '') : '—';
-  // Progreso = km ya hechos del TRAMO ACTUAL (desde la última parada hasta
-  // la siguiente), no de la ruta completa: es lo que avanza de verdad
-  // mientras circulas entre dos paradas. Se apoya en la misma proyección
-  // sobre la carretera real que usa el color del recorrido en el mapa (ver
-  // currentLegProgress), así ambos van siempre coordinados. Sin la
-  // geometría del tramo todavía cargada (arranque, o sin cobertura para
-  // pedirla a OSRM) se recurre al nº de paradas alcanzadas, para no dejar
-  // la barra en "—" el rato que tarde en llegar.
   const legProgress = currentLegProgress();
   let pct;
   if(legProgress){
@@ -1372,7 +1277,6 @@ function updateStats(pos){
   }
   const kmh = (pos.coords.speed !== null && !isNaN(pos.coords.speed)) ? Math.round(pos.coords.speed*3.6) : null;
   document.getElementById('statSpeed').innerHTML = (kmh !== null ? kmh : '—') + ' <span class="unit">km/h</span>';
-  if(kmh !== null && kmh >= 3) smoothedSpeedKmh = smoothedSpeedKmh === null ? kmh : smoothedSpeedKmh*0.85 + kmh*0.15;
 }
 
 /* ================= GPS ================= */
@@ -1403,9 +1307,9 @@ function startWatch(){
     updateMeMarker(lastPos.lat, lastPos.lon);
     applyRotation();
     updateStats(pos);
-    maybeRecomputeRoute().then(() => { updateTurnBanner(); updateFsPanel(); renderRouteLayer(); });
+    maybeRecomputeRoute().then(() => { updateTurnBanner(); updateFsProgress(); renderRouteLayer(); });
     updateTurnBanner();
-    updateFsPanel();
+    updateFsProgress();
     renderRouteLayer();
     checkRadarAlerts();
     maybeLoadTrafficSigns().then(checkRadarAlerts);
@@ -1782,7 +1686,7 @@ function toggleFullscreen(){
   const card = document.getElementById('mapCard');
   card.classList.toggle('fullscreen', fullscreenNav);
   document.getElementById('btnFullscreen').textContent = fullscreenNav ? '✕' : '⛶';
-  if(fullscreenNav) updateFsPanel();
+  if(fullscreenNav) updateFsProgress();
   setTimeout(() => { if(map) map.resize(); }, 60);
 }
 
