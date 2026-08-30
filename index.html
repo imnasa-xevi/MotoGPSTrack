@@ -105,13 +105,29 @@
   .map-card.fullscreen .chip-stack{display:flex;}
   .chip-stack .map-chip{position:static;}
   .chip-stack .map-chip.off{opacity:.55;}
+  /* Reloj + etiqueta de progreso, agrupados igual que chip-stack pero en el
+     lado izquierdo. La propia barra de progreso (fs-progress-v) va aparte,
+     pegada al borde izquierdo — ver más abajo. */
+  .side-stack-left{display:none; flex-direction:column; align-items:flex-start; gap:8px; position:absolute; top:50%; left:12px; transform:translateY(-50%); z-index:6;}
+  .map-card.fullscreen .side-stack-left{display:flex;}
   .fs-clock{
-    display:none; position:absolute; top:50%; left:12px; transform:translateY(-50%);
     background:rgba(18,24,33,.88); border:1.5px solid var(--border); border-radius:14px;
-    padding:9px 13px; font-family:var(--font-display); font-weight:700; font-size:1.05rem;
-    color:var(--text); z-index:6;
+    padding:9px 13px; font-family:var(--font-display); font-weight:700; font-size:1.05rem; color:var(--text);
   }
-  .map-card.fullscreen .fs-clock{display:block;}
+  .fs-progress-label{
+    background:rgba(18,24,33,.88); border:1.5px solid var(--border); border-radius:14px;
+    padding:6px 11px; font-size:.68rem; color:var(--muted); max-width:118px; line-height:1.3;
+  }
+  /* Barra de progreso vertical, pegada al borde izquierdo de arriba a abajo:
+     se rellena desde arriba según avanzas por el tramo actual (currentLegProgress),
+     como un indicador de nivel. Ancho mínimo para no robar mapa visible ni
+     estorbar con los chips/reloj, que ya van con 12px de margen del borde. */
+  .fs-progress-v{
+    display:none; position:absolute; left:0; top:0; bottom:0; width:7px;
+    background:rgba(255,255,255,.14); z-index:6; overflow:hidden; border-radius:0 5px 5px 0;
+  }
+  .map-card.fullscreen .fs-progress-v{display:block;}
+  .fs-progress-v-fill{position:absolute; left:0; top:0; width:100%; height:0%; background:var(--accent); transition:height .5s ease;}
 
   .mode-toggle{
     position:absolute; top:12px; left:50%; transform:translateX(-50%);
@@ -157,10 +173,6 @@
   .fs-panel .fs-value{font-family:var(--font-display); font-size:1.15rem; font-weight:700; line-height:1.15;}
   .fs-panel .fs-sub{font-size:.72rem; color:var(--muted); margin-top:2px; line-height:1.3;}
   .fs-panel .fs-div{width:1px; align-self:stretch; background:var(--border);}
-  .fs-progress-row{display:flex; align-items:center; gap:6px;}
-  .fs-progress-track{flex:1; height:3px; border-radius:2px; background:rgba(255,255,255,.14); overflow:hidden;}
-  .fs-progress-fill{height:100%; width:0%; background:var(--accent); transition:width .5s ease;}
-  .fs-progress-text{font-size:.62rem; color:var(--muted); white-space:nowrap; flex:none;}
 
   .wp-dot{width:26px; height:26px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; color:#04222a; font-weight:800; font-size:.72rem; font-family:var(--font-display);}
   .wp-dot.done{background:var(--done);}
@@ -339,14 +351,14 @@
       <button class="map-chip" id="btnVoiceFs" title="Voz de los avisos">🔊</button>
       <button class="map-chip" id="btnMapStyleFs" title="Estilo del mapa">🌙</button>
     </div>
-    <div class="fs-clock" id="fsClock">--:--</div>
+    <div class="side-stack-left" id="sideStackLeft">
+      <div class="fs-clock" id="fsClock">--:--</div>
+      <div class="fs-progress-label" id="fsProgressLabel">—</div>
+    </div>
+    <div class="fs-progress-v" id="fsProgressV"><div class="fs-progress-v-fill" id="fsProgressVFill"></div></div>
     <div class="speed-sign" id="speedSign"><span id="speedSignNum">—</span></div>
     <div class="fs-stack" id="fsStack">
       <div class="fs-panel" id="fsPanel">
-        <div class="fs-progress-row">
-          <div class="fs-progress-track"><div class="fs-progress-fill" id="fsProgressFill"></div></div>
-          <div class="fs-progress-text" id="fsProgressText">—</div>
-        </div>
         <div class="fs-cols">
           <div class="fs-col">
             <div class="fs-label">Próxima parada</div>
@@ -505,7 +517,7 @@
 // agresivamente — ver sw.js — y a veces no se entera de una actualización
 // hasta forzar recarga). Subir este número junto con CACHE en sw.js en cada
 // cambio que se despliegue.
-const APP_VERSION = 'v29 · 2026-08-30';
+const APP_VERSION = 'v30 · 2026-08-30';
 
 /* ================= Datos de ruta (semilla de demostración) =================
    Misma ruta real que MotoTrack, para poder comparar ambas apps con los
@@ -1000,11 +1012,11 @@ function updateFsPanel(){
   if(!document.getElementById('fsPanel')) return;
   const elNextDist = document.getElementById('fsNextDist'), elNextSub = document.getElementById('fsNextSub');
   const elFinalDist = document.getElementById('fsFinalDist'), elFinalSub = document.getElementById('fsFinalSub');
-  const elProgFill = document.getElementById('fsProgressFill'), elProgText = document.getElementById('fsProgressText');
+  const elProgFill = document.getElementById('fsProgressVFill'), elProgText = document.getElementById('fsProgressLabel');
   if(currentIdx >= ROUTE.length){
     elNextDist.textContent = '—'; elNextSub.textContent = 'Ruta completada';
     elFinalDist.textContent = '—'; elFinalSub.textContent = '—';
-    elProgFill.style.width = '100%';
+    elProgFill.style.height = '100%';
     elProgText.textContent = '100%';
     return;
   }
@@ -1040,7 +1052,7 @@ function updateFsPanel(){
     pct = 0;
     elProgText.textContent = '—';
   }
-  elProgFill.style.width = pct + '%';
+  elProgFill.style.height = pct + '%';
 }
 
 /* ================= Overpass (radares, límite de velocidad) =================
